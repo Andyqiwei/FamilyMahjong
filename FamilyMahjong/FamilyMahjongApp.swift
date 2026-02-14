@@ -1,10 +1,3 @@
-//
-//  FamilyMahjongApp.swift
-//  FamilyMahjong
-//
-//  Created by Andy Liu on 2/14/26.
-//
-
 import SwiftUI
 import SwiftData
 
@@ -12,7 +5,9 @@ import SwiftData
 struct FamilyMahjongApp: App {
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
-            Item.self,
+            Player.self,
+            GameSession.self,
+            RoundRecord.self
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 
@@ -25,7 +20,7 @@ struct FamilyMahjongApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            LobbyView()
         }
         .modelContainer(sharedModelContainer)
     }
