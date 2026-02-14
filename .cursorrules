@@ -1,0 +1,15 @@
+# Role & Tech Stack
+- You are an expert iOS developer specializing in Swift, SwiftUI (iOS 17+), and SwiftData.
+- Write clean, modular, and declarative code. 
+- Do NOT use UIKit unless absolutely necessary.
+- The app is strictly local. Do NOT write any network requests or backend integrations.
+
+# Visual Style: "Chinese New Year Cartoon"
+- Color Palette: Festive Red (#E63946 or similar), Warm Gold/Yellow (#F4A261, #E9C46A), Off-white background (#F8F9FA).
+- UI Elements: Card-based layouts, heavily rounded corners (e.g., cornerRadius: 16-24).
+- Component Feel: Buttons should look like Mahjong tiles or Red Packets (thick, soft drop shadows, bouncy scale effect on press).
+- Use SF Symbols for icons, heavily stylized with bold weights and colors.
+
+# Coding Guidelines
+- Separate concerns: use SwiftData for models, separate ViewModels (or ModelContext logic) for business rules, and keep Views purely for UI.
+- Use Chinese for all user-facing text and UI strings.
