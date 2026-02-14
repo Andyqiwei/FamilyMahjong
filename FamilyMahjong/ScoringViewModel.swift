@@ -21,6 +21,107 @@ final class ScoringViewModel: ObservableObject {
         payee.totalScore += actual
     }
 
+    /// 只读计算本局每人得分变化（不修改 Player）。用于结果页展示。
+    /// 返回 [playerID: 本局得分变化]，赢为正、输为负。
+    func roundScoreDeltas(record: RoundRecord, players: [Player]) -> [UUID: Int] {
+        var deltas: [UUID: Int] = [:]
+        for p in players { deltas[p.id] = 0 }
+        guard players.count == 4,
+              let winner = players.first(where: { $0.id == record.winnerID }) else { return deltas }
+        let others = players.filter { $0.id != record.winnerID }
+        let dealerID = record.dealerID
+
+        func addTransfer(payerID: UUID, payeeID: UUID, baseScore: Int) {
+            let actual = (payerID == dealerID || payeeID == dealerID) ? baseScore * 2 : baseScore
+            deltas[payerID, default: 0] -= actual
+            deltas[payeeID, default: 0] += actual
+        }
+
+        // 1. 胡牌
+        if record.isSelfDrawn {
+            for other in others {
+                addTransfer(payerID: other.id, payeeID: winner.id, baseScore: 20)
+            }
+        } else {
+            if let lid = record.loserID, let loser = players.first(where: { $0.id == lid }) {
+                addTransfer(payerID: loser.id, payeeID: winner.id, baseScore: 20)
+                for other in others where other.id != lid {
+                    addTransfer(payerID: other.id, payeeID: winner.id, baseScore: 10)
+                }
+            }
+        }
+
+        // 2. 杠牌
+        for kong in record.kongDetails {
+            guard let kongTaker = players.first(where: { $0.id == kong.playerID }) else { continue }
+            let kongPayers = players.filter { $0.id != kong.playerID }
+            if kong.exposedKongCount > 0 {
+                let base = 10 * kong.exposedKongCount
+                for payer in kongPayers {
+                    addTransfer(payerID: payer.id, payeeID: kongTaker.id, baseScore: base)
+                }
+            }
+            if kong.concealedKongCount > 0 {
+                let base = 20 * kong.concealedKongCount
+                for payer in kongPayers {
+                    addTransfer(payerID: payer.id, payeeID: kongTaker.id, baseScore: base)
+                }
+            }
+        }
+
+        return deltas
+    }
+
+    /// 只读生成本局逐笔积分转移列表（谁给谁多少分），用于结果页流转展示。仅包含 amount > 0 的条目。
+    func roundTransfers(record: RoundRecord, players: [Player]) -> [(payerID: UUID, payeeID: UUID, amount: Int)] {
+        var result: [(payerID: UUID, payeeID: UUID, amount: Int)] = []
+        guard players.count == 4,
+              let winner = players.first(where: { $0.id == record.winnerID }) else { return result }
+        let others = players.filter { $0.id != record.winnerID }
+        let dealerID = record.dealerID
+
+        func appendTransfer(payerID: UUID, payeeID: UUID, baseScore: Int) {
+            let actual = (payerID == dealerID || payeeID == dealerID) ? baseScore * 2 : baseScore
+            if actual > 0 {
+                result.append((payerID: payerID, payeeID: payeeID, amount: actual))
+            }
+        }
+
+        // 1. 胡牌
+        if record.isSelfDrawn {
+            for other in others {
+                appendTransfer(payerID: other.id, payeeID: winner.id, baseScore: 20)
+            }
+        } else {
+            if let lid = record.loserID, let loser = players.first(where: { $0.id == lid }) {
+                appendTransfer(payerID: loser.id, payeeID: winner.id, baseScore: 20)
+                for other in others where other.id != lid {
+                    appendTransfer(payerID: other.id, payeeID: winner.id, baseScore: 10)
+                }
+            }
+        }
+
+        // 2. 杠牌
+        for kong in record.kongDetails {
+            guard let kongTaker = players.first(where: { $0.id == kong.playerID }) else { continue }
+            let kongPayers = players.filter { $0.id != kong.playerID }
+            if kong.exposedKongCount > 0 {
+                let base = 10 * kong.exposedKongCount
+                for payer in kongPayers {
+                    appendTransfer(payerID: payer.id, payeeID: kongTaker.id, baseScore: base)
+                }
+            }
+            if kong.concealedKongCount > 0 {
+                let base = 20 * kong.concealedKongCount
+                for payer in kongPayers {
+                    appendTransfer(payerID: payer.id, payeeID: kongTaker.id, baseScore: base)
+                }
+            }
+        }
+
+        return result
+    }
+
     // MARK: - 主结算
 
     /// 根据本局结果计算并应用分数，更新统计，并追加一条 RoundRecord。

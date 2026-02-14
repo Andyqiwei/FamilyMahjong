@@ -22,8 +22,10 @@ private extension Color {
 
 struct GameTableView: View {
     let players: [Player]
+    var onDismissToLobby: (() -> Void)?
 
     @Environment(\.modelContext) private var modelContext
+    @StateObject private var scoringViewModel = ScoringViewModel()
     @State private var selectedDealerID: UUID?
     @State private var sessionCreated: GameSession?
     @State private var navigateToRound = false
@@ -108,7 +110,11 @@ struct GameTableView: View {
             Group {
                 if let session = sessionCreated {
                     NavigationLink(
-                        destination: RoundInputView(session: session),
+                        destination: RoundInputView(
+                            gameSession: session,
+                            viewModel: scoringViewModel,
+                            onDismissToLobby: onDismissToLobby
+                        ),
                         isActive: $navigateToRound
                     ) {
                         EmptyView()

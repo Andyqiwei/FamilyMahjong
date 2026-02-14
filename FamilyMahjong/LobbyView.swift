@@ -38,7 +38,10 @@ struct LobbyView: View {
             ZStack(alignment: .bottom) {
                 // 程序化跳转到选庄页 GameTableView（隐藏的 NavigationLink）
                 if let list = playersToTable, list.count == 4 {
-                    NavigationLink(destination: GameTableView(players: list), isActive: $navigateToTable) {
+                    NavigationLink(
+                        destination: GameTableView(players: list, onDismissToLobby: { navigateToTable = false }),
+                        isActive: $navigateToTable
+                    ) {
                         EmptyView()
                     }
                     .frame(width: 0, height: 0)
