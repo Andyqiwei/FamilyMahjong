@@ -63,6 +63,8 @@ struct ScoreResultView: View {
 
     private var winnerID: UUID? { currentRecord?.winnerID }
 
+    private var dealerID: UUID? { currentRecord?.dealerID }
+
     private var transfers: [(payerID: UUID, payeeID: UUID, amount: Int)] {
         guard let record = currentRecord else { return [] }
         return scoringViewModel.roundTransfers(record: record, players: gameSession.players)
@@ -168,6 +170,7 @@ struct ScoreResultView: View {
     private func playerScoreCard(player: Player) -> some View {
         let delta = roundDeltas[player.id] ?? 0
         let isWinner = player.id == winnerID
+        let isDealer = player.id == dealerID
         let deltaText = delta >= 0 ? "+\(delta)" : "\(delta)"
         let deltaColor: Color = isWinner ? Color.resultRed : (delta < 0 ? Color.resultGreenDark : Color.resultGray)
 
@@ -178,11 +181,21 @@ struct ScoreResultView: View {
                     .clipShape(Circle())
                     .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
 
+                if isDealer {
+                    Text("庄")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(Color.resultGold)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(Color.resultGold.opacity(0.3), in: Capsule())
+                        .overlay(Capsule().stroke(Color.resultRed, lineWidth: 1))
+                        .offset(x: 4, y: -4)
+                }
                 if isWinner {
                     Image(systemName: "crown.fill")
                         .font(.system(size: 18))
                         .foregroundStyle(Color.resultGold)
-                        .offset(x: 4, y: -4)
+                        .offset(x: isDealer ? 20 : 4, y: -4)
                 }
             }
 
@@ -274,8 +287,21 @@ struct ScoreResultView: View {
     }
 
     private func smallPlayerChip(player: Player) -> some View {
-        HStack(spacing: 6) {
-            PlayerAvatarView(player: player, size: 32, iconColor: Color.resultRed)
+        let isDealer = player.id == dealerID
+        return HStack(spacing: 6) {
+            ZStack(alignment: .topTrailing) {
+                PlayerAvatarView(player: player, size: 32, iconColor: Color.resultRed)
+                if isDealer {
+                    Text("庄")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(Color.resultGold)
+                        .padding(.horizontal, 3)
+                        .padding(.vertical, 1)
+                        .background(Color.resultGold.opacity(0.3), in: Capsule())
+                        .overlay(Capsule().stroke(Color.resultRed, lineWidth: 1))
+                        .offset(x: 2, y: -2)
+                }
+            }
             Text(player.name)
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.primary)

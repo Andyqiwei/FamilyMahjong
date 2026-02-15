@@ -9,6 +9,16 @@ import Foundation
 import SwiftData
 import Combine
 
+/// 单玩家聚合统计：用于详细数据报表。
+struct PlayerStatDetail {
+    var scoreDelta: Int = 0
+    var win: Int = 0
+    var selfDrawn: Int = 0
+    var lose: Int = 0
+    var exposedKong: Int = 0
+    var concealedKong: Int = 0
+}
+
 /// 算分引擎：负责单局结算与撤销，RoundRecord 为唯一真相，统计由遍历 RoundRecord 实时计算。不持有 ModelContext，由调用方在合适 context 中保存。
 final class ScoringViewModel: ObservableObject {
 
@@ -196,7 +206,7 @@ final class ScoringViewModel: ObservableObject {
         record.loserID = loserID
         record.isSelfDrawn = isSelfDrawn
         record.kongDetails = kongs
-        record.timestamp = Date()
+        // 编辑时保留原 timestamp，避免 log 中局序错乱
     }
 
     // MARK: - 全局统计（遍历 RoundRecord 实时计算）
@@ -250,41 +260,117 @@ final class ScoringViewModel: ObservableObject {
         }
     }
 
+    // MARK: - 聚合统计（用于详细报表）
+
+    /// 对给定 records 聚合指定玩家的积分变动、胡/自摸/点炮/明杠/暗杠。
+    /// 积分变动与胡/自摸/点炮/明杠/暗杠均仅统计普通局；平账不计入。当日变动 = 当天所有普通局的积分变动累加（平账前后的普通局都算）。
+    func aggregateStats(for player: Player, in records: [RoundRecord], allPlayers: [Player]) -> PlayerStatDetail {
+        var detail = PlayerStatDetail()
+        let playerID = player.id
+
+        for record in records {
+            if record.isAdjustment { continue }
+
+            let sessionPlayers = record.gameSession?.players ?? []
+            guard sessionPlayers.count == 4 else { continue }
+            let deltas = roundScoreDeltas(record: record, players: sessionPlayers)
+            detail.scoreDelta += deltas[playerID] ?? 0
+
+            if record.winnerID == playerID {
+                detail.win += 1
+                if record.isSelfDrawn { detail.selfDrawn += 1 }
+            }
+            if record.loserID == playerID { detail.lose += 1 }
+
+            for kong in record.kongDetails where kong.playerID == playerID {
+                detail.exposedKong += kong.exposedKongCount
+                detail.concealedKong += kong.concealedKongCount
+            }
+        }
+
+        return detail
+    }
+
+    /// 按自然日分组，日期倒序（新日期在前）。
+    func groupRecordsByDay(records: [RoundRecord]) -> [(date: Date, records: [RoundRecord])] {
+        let calendar = Calendar.current
+        let grouped = Dictionary(grouping: records) { calendar.startOfDay(for: $0.timestamp) }
+        return grouped
+            .map { (date: $0.key, records: $0.value.sorted { $0.timestamp < $1.timestamp }) }
+            .sorted { $0.date > $1.date }
+    }
+
     // MARK: - 当日积分变动
 
-    /// 查询该玩家在今天参与的所有 RoundRecord，计算当日积分净变动（赢为正、输为负）。
+    /// 查询该玩家在今天参与的所有 RoundRecord，计算当日积分净变动（赢为正、输为负）。平账后只计平账之后的普通局，平账记录本身不计入。
     func getTodayScoreDelta(for player: Player, context: ModelContext) -> Int {
         let calendar = Calendar.current
         let startOfToday = calendar.startOfDay(for: Date())
         guard let startOfNextDay = calendar.date(byAdding: .day, value: 1, to: startOfToday) else { return 0 }
 
-        var descriptor = FetchDescriptor<RoundRecord>(
+        let descriptor = FetchDescriptor<RoundRecord>(
             predicate: #Predicate<RoundRecord> { record in
                 record.timestamp >= startOfToday && record.timestamp < startOfNextDay
             }
         )
 
         guard let todayRecords = try? context.fetch(descriptor) else { return 0 }
+        let sortedByTime = todayRecords.sorted { $0.timestamp < $1.timestamp }
 
         let playerID = player.id
         let playerName = player.name
-        let participatingRecords = todayRecords.filter { record in
+
+        func involvesPlayer(_ record: RoundRecord) -> Bool {
             if record.isAdjustment {
                 return record.adjustments.contains { $0.playerName == playerName }
             }
-            return record.winnerID == playerID ||
-                record.loserID == playerID ||
-                record.kongDetails.contains { $0.playerID == playerID }
+            return record.winnerID == playerID
+                || record.loserID == playerID
+                || record.kongDetails.contains { $0.playerID == playerID }
         }
 
+        let lastAdjustmentIndex = sortedByTime.lastIndex(where: { $0.isAdjustment && involvesPlayer($0) })
+        let startIndex: Int
+        if let idx = lastAdjustmentIndex {
+            startIndex = idx + 1
+        } else {
+            startIndex = 0
+        }
+
+        guard startIndex < sortedByTime.count else { return 0 }
+
         var totalDelta = 0
-        for record in participatingRecords {
-            guard let players = record.gameSession?.players, !players.isEmpty else { continue }
-            guard record.isAdjustment || players.count == 4 else { continue }
+        for i in startIndex ..< sortedByTime.count {
+            let record = sortedByTime[i]
+            guard !record.isAdjustment else { continue }
+            guard involvesPlayer(record) else { continue }
+            guard let players = record.gameSession?.players, players.count == 4 else { continue }
             let deltas = roundScoreDeltas(record: record, players: players)
             totalDelta += deltas[playerID] ?? 0
         }
 
+        return totalDelta
+    }
+
+    // MARK: - 本场盈亏（从上次平账起到现在，仅普通局，供大厅展示）
+
+    /// 从上次平账之后到现在的积分净变动（仅普通局，平账不计）。无平账则从最早记录起算。与「当日」「历史每日」无关，仅供大厅「本场盈亏」展示。
+    func getSessionScoreDelta(for player: Player, context: ModelContext) -> Int {
+        let descriptor = FetchDescriptor<RoundRecord>(sortBy: [SortDescriptor(\.timestamp, order: .forward)])
+        guard let allRecords = try? context.fetch(descriptor) else { return 0 }
+        let lastAdjustmentIndex = allRecords.lastIndex(where: { $0.isAdjustment })
+        let startIndex = lastAdjustmentIndex.map { $0 + 1 } ?? 0
+        guard startIndex < allRecords.count else { return 0 }
+
+        let playerID = player.id
+        var totalDelta = 0
+        for i in startIndex ..< allRecords.count {
+            let record = allRecords[i]
+            guard !record.isAdjustment else { continue }
+            guard let players = record.gameSession?.players, players.count == 4 else { continue }
+            let deltas = roundScoreDeltas(record: record, players: players)
+            totalDelta += deltas[playerID] ?? 0
+        }
         return totalDelta
     }
 

@@ -100,9 +100,40 @@ struct LobbyView: View {
     // MARK: - 标题栏
 
     private var titleBar: some View {
-        ZStack(alignment: .top) {
+        VStack(spacing: 0) {
+            // 顶层：图标按钮独立占一行，不与标题重叠
+            HStack {
+                NavigationLink(destination: DataManagementView()) {
+                    Label("设置", systemImage: "gearshape.fill")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(Color.lobbyRed)
+                }
+                Spacer()
+                HStack(spacing: 16) {
+                    NavigationLink(destination: RecentMatchLogWrapperView()) {
+                        Image(systemName: "doc.text")
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(Color.lobbyRed)
+                    }
+                    NavigationLink(destination: ScoreAdjustmentWrapperView()) {
+                        Image(systemName: "equal.circle")
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(Color.lobbyRed)
+                    }
+                    NavigationLink(destination: StatsView()) {
+                        Image(systemName: "chart.bar")
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(Color.lobbyRed)
+                    }
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 12)
+            .padding(.bottom, 8)
+
+            // 下层：标题居中，与按钮完全分离
             VStack(spacing: 4) {
-                Text("家庭麻将馆")
+                Text("2802老朱家麻将馆")
                     .font(.system(size: 28, weight: .bold))
                     .foregroundStyle(Color.lobbyRed)
                 Text(Date().festiveDateString())
@@ -113,41 +144,10 @@ struct LobbyView: View {
                     .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 20)
-            .background(Color.lobbyBackground)
-            .shadow(color: .black.opacity(0.06), radius: 4, y: 2)
-            HStack {
-                NavigationLink(destination: DataManagementView()) {
-                    Label("设置", systemImage: "gearshape.fill")
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(Color.lobbyRed)
-                }
-                Spacer()
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.leading, 20)
-            .padding(.top, 12)
-            HStack(spacing: 16) {
-                NavigationLink(destination: RecentMatchLogWrapperView()) {
-                    Image(systemName: "doc.text")
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(Color.lobbyRed)
-                }
-                NavigationLink(destination: ScoreAdjustmentWrapperView()) {
-                    Image(systemName: "equal.circle")
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(Color.lobbyRed)
-                }
-                NavigationLink(destination: StatsView()) {
-                    Image(systemName: "chart.bar")
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(Color.lobbyRed)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .trailing)
-            .padding(.trailing, 20)
-            .padding(.top, 12)
+            .padding(.bottom, 16)
         }
+        .background(Color.lobbyBackground)
+        .shadow(color: .black.opacity(0.06), radius: 4, y: 2)
     }
 
     // MARK: - 玩家网格
@@ -312,8 +312,8 @@ private struct PlayerCardView: View {
 
     @Environment(\.modelContext) private var modelContext
 
-    private var todayDelta: Int {
-        scoringViewModel.getTodayScoreDelta(for: player, context: modelContext)
+    private var sessionDelta: Int {
+        scoringViewModel.getSessionScoreDelta(for: player, context: modelContext)
     }
 
     var body: some View {
@@ -335,12 +335,12 @@ private struct PlayerCardView: View {
                 Text("总积分 \(scoringViewModel.getTotalScore(for: player, context: modelContext))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                if todayDelta != 0 {
-                    Text(todayDelta > 0 ? "今日 +\(todayDelta)" : "今日 \(todayDelta)")
+                if sessionDelta != 0 {
+                    Text(sessionDelta > 0 ? "本场盈亏 +\(sessionDelta)" : "本场盈亏 \(sessionDelta)")
                         .font(.caption2)
-                        .foregroundStyle(todayDelta > 0 ? Color.green : Color.red)
+                        .foregroundStyle(sessionDelta > 0 ? Color.green : Color.red)
                 } else {
-                    Text("今日 0")
+                    Text("本场盈亏 0")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }

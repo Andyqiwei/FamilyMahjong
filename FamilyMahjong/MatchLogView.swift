@@ -54,8 +54,12 @@ struct MatchLogView: View {
         self.onPopToRoot = onPopToRoot
     }
 
+    /// 按时间倒序，同秒内按局号倒序，保证顺序一致
     private var sortedRecords: [RoundRecord] {
-        records.sorted { $0.timestamp > $1.timestamp }
+        records.sorted { r1, r2 in
+            if r1.timestamp != r2.timestamp { return r1.timestamp > r2.timestamp }
+            return r1.roundNumber > r2.roundNumber
+        }
     }
 
     private func playerName(record: RoundRecord, id: UUID) -> String {

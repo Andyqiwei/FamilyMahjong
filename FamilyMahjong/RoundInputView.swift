@@ -48,10 +48,11 @@ struct RoundInputView: View {
     @State private var saveErrorMessage: String?
     @State private var showSaveErrorAlert = false
 
-    private var isEditMode: Bool { editingRecord != nil }
+    /// 编辑模式：来自历史日志的 editingRecord，或刚确认算分后从结果页返回的 justCreatedRecord
+    private var isEditMode: Bool { (editingRecord ?? justCreatedRecord) != nil }
 
     private var roundNumber: Int {
-        if let rec = editingRecord { return rec.roundNumber }
+        if let rec = justCreatedRecord ?? editingRecord { return rec.roundNumber }
         return viewModel.getNextRoundNumberForToday(context: modelContext)
     }
 
@@ -61,9 +62,21 @@ struct RoundInputView: View {
         return selectedLoser != nil
     }
 
+    /// 显示顺序：庄家第一，其余按姓名排序（各 tab 统一）
+    private var playersInDisplayOrder: [Player] {
+        let dealerID = gameSession.currentDealerID
+        guard let dealer = gameSession.players.first(where: { $0.id == dealerID }) else {
+            return gameSession.players.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
+        }
+        let others = gameSession.players
+            .filter { $0.id != dealerID }
+            .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
+        return [dealer] + others
+    }
+
     private var losersCandidates: [Player] {
-        guard let winner = selectedWinner else { return gameSession.players }
-        return gameSession.players.filter { $0.id != winner.id }
+        guard let winner = selectedWinner else { return playersInDisplayOrder }
+        return playersInDisplayOrder.filter { $0.id != winner.id }
     }
 
     var body: some View {
@@ -137,7 +150,7 @@ struct RoundInputView: View {
             ToolbarItem(placement: .principal) {
                 VStack(spacing: 2) {
                     Text(roundDisplayText(
-                        date: isEditMode ? editingRecord!.timestamp : Date(),
+                        date: (justCreatedRecord ?? editingRecord)?.timestamp ?? Date(),
                         roundNumber: roundNumber
                     ))
                         .font(.caption.weight(.bold))
@@ -179,7 +192,7 @@ struct RoundInputView: View {
             }
 
             HStack(spacing: 12) {
-                ForEach(gameSession.players, id: \.id) { player in
+                ForEach(playersInDisplayOrder, id: \.id) { player in
                     winnerAvatarButton(player: player)
                 }
             }
@@ -318,7 +331,7 @@ struct RoundInputView: View {
                     .font(.headline.weight(.bold))
                     .foregroundStyle(.primary)
             }
-            ForEach(gameSession.players, id: \.id) { player in
+            ForEach(playersInDisplayOrder, id: \.id) { player in
                 kongRow(player: player, kind: .exposed)
             }
         }
@@ -339,7 +352,7 @@ struct RoundInputView: View {
                     .font(.headline.weight(.bold))
                     .foregroundStyle(.primary)
             }
-            ForEach(gameSession.players, id: \.id) { player in
+            ForEach(playersInDisplayOrder, id: \.id) { player in
                 kongRow(player: player, kind: .concealed)
             }
         }
@@ -443,7 +456,7 @@ struct RoundInputView: View {
 
     private func confirmScore() {
         guard canConfirm, let winner = selectedWinner else { return }
-        let kongsArray: [KongDetail] = gameSession.players.map { player in
+        let kongsArray: [KongDetail] = playersInDisplayOrder.map { player in
             kongDetails[player.id] ?? KongDetail(playerID: player.id, exposedKongCount: 0, concealedKongCount: 0)
         }
         if let rec = editingRecord {

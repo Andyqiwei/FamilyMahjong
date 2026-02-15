@@ -18,6 +18,19 @@ private extension Color {
     static let statsCardBg = Color(red: 255/255, green: 252/255, blue: 248/255)
 }
 
+// MARK: - 主 Tab / 详细范围
+
+private enum MainTab: String, CaseIterable {
+    case funRanking = "趣味大榜"
+    case detailedData = "详细数据"
+}
+
+private enum DetailScope: String, CaseIterable {
+    case total = "总计"
+    case today = "今日"
+    case dailyHistory = "历史每日"
+}
+
 // MARK: - StatsView
 
 struct StatsView: View {
@@ -26,7 +39,10 @@ struct StatsView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Query(sort: \Player.name) private var players: [Player]
+    @Query(sort: \RoundRecord.timestamp, order: .reverse) private var allRecords: [RoundRecord]
     @StateObject private var scoringViewModel = ScoringViewModel()
+    @State private var mainTab: MainTab = .funRanking
+    @State private var detailScope: DetailScope = .total
 
     private var winKing: Player? {
         players.max(by: { scoringViewModel.getWinCount(for: $0, context: modelContext) < scoringViewModel.getWinCount(for: $1, context: modelContext) })
@@ -53,7 +69,7 @@ struct StatsView: View {
             )
             .ignoresSafeArea()
 
-            if players.isEmpty || !hasAnyData {
+            if players.isEmpty {
                 VStack(spacing: 16) {
                     Image(systemName: "chart.bar.doc.horizontal")
                         .font(.system(size: 56, weight: .bold))
@@ -67,10 +83,22 @@ struct StatsView: View {
             } else {
                 ScrollView {
                     VStack(spacing: 20) {
-                        titleSection
-                        winKingCard
-                        loseKingCard
-                        kongKingCard
+                        Picker("", selection: $mainTab) {
+                            ForEach(MainTab.allCases, id: \.self) { tab in
+                                Text(tab.rawValue).tag(tab)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .padding(.horizontal, 4)
+
+                        if mainTab == .funRanking {
+                            titleSection
+                            winKingCard
+                            loseKingCard
+                            kongKingCard
+                        } else {
+                            detailedDataSection
+                        }
                     }
                     .padding(.horizontal, 20)
                     .padding(.vertical, 24)
@@ -102,6 +130,61 @@ struct StatsView: View {
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity)
             .padding(.bottom, 8)
+    }
+
+    private var detailedDataSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Picker("", selection: $detailScope) {
+                ForEach(DetailScope.allCases, id: \.self) { scope in
+                    Text(scope.rawValue).tag(scope)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 4)
+
+            switch detailScope {
+            case .total:
+                if allRecords.isEmpty {
+                    detailedDataEmptyView
+                } else {
+                    StatTableView(players: players, records: allRecords, viewModel: scoringViewModel)
+                }
+            case .today:
+                let todayRecords = allRecords.filter { Calendar.current.isDateInToday($0.timestamp) }
+                if todayRecords.isEmpty {
+                    detailedDataEmptyView
+                } else {
+                    StatTableView(players: players, records: todayRecords, viewModel: scoringViewModel)
+                }
+            case .dailyHistory:
+                let byDay = scoringViewModel.groupRecordsByDay(records: allRecords)
+                if byDay.isEmpty {
+                    detailedDataEmptyView
+                } else {
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 20) {
+                            ForEach(Array(byDay.enumerated()), id: \.offset) { _, day in
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text(day.date.formatted(.dateTime.month(.twoDigits).day(.twoDigits)))
+                                        .font(.headline.weight(.bold))
+                                        .foregroundStyle(.white)
+                                    StatTableView(players: players, records: day.records, viewModel: scoringViewModel)
+                                }
+                            }
+                        }
+                        .padding(.vertical, 8)
+                    }
+                }
+            }
+        }
+    }
+
+    private var detailedDataEmptyView: some View {
+        Text("暂无详细数据")
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(.white.opacity(0.9))
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 32)
     }
 
     private var winKingCard: some View {
@@ -191,6 +274,104 @@ struct StatsView: View {
             RoundedRectangle(cornerRadius: 20)
                 .stroke(Color.statsGold.opacity(0.4), lineWidth: 2)
         )
+    }
+}
+
+// MARK: - StatTableView（左列固定，右列横向滑动）
+
+private struct StatTableView: View {
+    let players: [Player]
+    let records: [RoundRecord]
+    @ObservedObject var viewModel: ScoringViewModel
+
+    private let leftColumnWidth: CGFloat = 110
+    private let dataColumnWidth: CGFloat = 60
+    private let dataColumns = ["积分变动", "胡", "自摸", "点炮", "明杠", "暗杠"]
+
+    var body: some View {
+        HStack(spacing: 0) {
+            leftColumn
+            ScrollView(.horizontal, showsIndicators: true) {
+                dataColumnsView
+            }
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color.statsCardBg)
+                .shadow(color: .black.opacity(0.2), radius: 8, y: 2)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(Color.statsGold.opacity(0.4), lineWidth: 2)
+        )
+    }
+
+    private var leftColumn: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Text("玩家")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.statsRedDark)
+                    .frame(width: leftColumnWidth - 12, alignment: .leading)
+            }
+            .frame(height: 36)
+            .padding(.horizontal, 8)
+            .background(Color.statsGold.opacity(0.25))
+
+            ForEach(players, id: \.id) { player in
+                HStack(spacing: 6) {
+                    PlayerAvatarView(player: player, size: 32, iconColor: Color.statsRed)
+                    Text(player.name)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                }
+                .frame(width: leftColumnWidth - 12, height: 44, alignment: .leading)
+                .padding(.horizontal, 8)
+            }
+        }
+        .frame(width: leftColumnWidth, alignment: .leading)
+    }
+
+    private var dataColumnsView: some View {
+        HStack(spacing: 0) {
+            ForEach(Array(dataColumns.enumerated()), id: \.offset) { index, title in
+                VStack(spacing: 0) {
+                    Text(title)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Color.statsRedDark)
+                        .frame(width: dataColumnWidth, height: 36)
+                        .background(Color.statsGold.opacity(0.25))
+
+                    ForEach(players, id: \.id) { player in
+                        let detail = viewModel.aggregateStats(for: player, in: records, allPlayers: players)
+                        cellView(detail: detail, columnIndex: index)
+                            .frame(width: dataColumnWidth, height: 44)
+                    }
+                }
+            }
+        }
+        .padding(.trailing, 12)
+    }
+
+    @ViewBuilder
+    private func cellView(detail: PlayerStatDetail, columnIndex: Int) -> some View {
+        Group {
+            switch columnIndex {
+            case 0:
+                let delta = detail.scoreDelta
+                Text(delta > 0 ? "+\(delta)" : "\(delta)")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(delta > 0 ? Color.statsRed : (delta < 0 ? Color.green : Color.secondary))
+            case 1: Text("\(detail.win)").font(.subheadline.weight(.medium)).foregroundStyle(.primary)
+            case 2: Text("\(detail.selfDrawn)").font(.subheadline.weight(.medium)).foregroundStyle(.primary)
+            case 3: Text("\(detail.lose)").font(.subheadline.weight(.medium)).foregroundStyle(.primary)
+            case 4: Text("\(detail.exposedKong)").font(.subheadline.weight(.medium)).foregroundStyle(.primary)
+            case 5: Text("\(detail.concealedKong)").font(.subheadline.weight(.medium)).foregroundStyle(.primary)
+            default: EmptyView()
+            }
+        }
+        .frame(maxWidth: .infinity)
     }
 }
 
