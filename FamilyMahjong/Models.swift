@@ -24,34 +24,18 @@ final class Player {
     var name: String
     var avatarIcon: String
     var avatarData: Data?
-    var totalScore: Int
-    var winCount: Int
-    var loseCount: Int
-    var totalExposedKong: Int
-    var totalConcealedKong: Int
-
     var gameSessions: [GameSession]
 
     init(
         id: UUID = UUID(),
         name: String,
         avatarIcon: String,
-        avatarData: Data? = nil,
-        totalScore: Int = 0,
-        winCount: Int = 0,
-        loseCount: Int = 0,
-        totalExposedKong: Int = 0,
-        totalConcealedKong: Int = 0
+        avatarData: Data? = nil
     ) {
         self.id = id
         self.name = name
         self.avatarIcon = avatarIcon
         self.avatarData = avatarData
-        self.totalScore = totalScore
-        self.winCount = winCount
-        self.loseCount = loseCount
-        self.totalExposedKong = totalExposedKong
-        self.totalConcealedKong = totalConcealedKong
         self.gameSessions = []
     }
 }
@@ -60,16 +44,19 @@ final class Player {
 
 @Model
 final class GameSession {
-    var players: [Player]
+    @Relationship(inverse: \Player.gameSessions) var players: [Player]
 
     var currentDealerID: UUID
 
     var roundRecords: [RoundRecord]
 
+    var createdAt: Date
+
     init(currentDealerID: UUID) {
         self.players = []
         self.currentDealerID = currentDealerID
         self.roundRecords = []
+        self.createdAt = Date()
     }
 }
 

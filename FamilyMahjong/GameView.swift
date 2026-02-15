@@ -10,6 +10,8 @@ import SwiftData
 
 struct GameView: View {
     let session: GameSession
+    @Environment(\.modelContext) private var modelContext
+    @StateObject private var scoringViewModel = ScoringViewModel()
 
     var body: some View {
         ScrollView {
@@ -31,7 +33,7 @@ struct GameView: View {
                             Text(player.name)
                                 .font(.headline)
                             Spacer()
-                            Text("总积分 \(player.totalScore)")
+                            Text("总积分 \(scoringViewModel.getTotalScore(for: player, context: modelContext))")
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         }

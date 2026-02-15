@@ -168,6 +168,28 @@ struct GameTableView: View {
 
     private func startGame() {
         guard let dealerID = selectedDealerID else { return }
+        let selectedIDs = Set(players.map(\.id))
+
+        let descriptor = FetchDescriptor<GameSession>()
+        guard let allSessions = try? modelContext.fetch(descriptor) else {
+            createNewSession(dealerID: dealerID)
+            return
+        }
+
+        let existingSession = allSessions.first { session in
+            session.players.count == 4 && Set(session.players.map(\.id)) == selectedIDs
+        }
+
+        if let session = existingSession {
+            session.currentDealerID = dealerID
+            sessionCreated = session
+            navigateToRound = true
+        } else {
+            createNewSession(dealerID: dealerID)
+        }
+    }
+
+    private func createNewSession(dealerID: UUID) {
         let session = GameSession(currentDealerID: dealerID)
         modelContext.insert(session)
         session.players.append(contentsOf: players)

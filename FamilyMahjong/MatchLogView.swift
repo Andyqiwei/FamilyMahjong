@@ -17,6 +17,13 @@ private let logDateFormatter: DateFormatter = {
     return f
 }()
 
+private let roundMmDdFormatter: DateFormatter = {
+    let f = DateFormatter()
+    f.dateFormat = "MM-dd"
+    f.locale = Locale(identifier: "zh_CN")
+    return f
+}()
+
 private extension Color {
     static let logRed = Color(red: 230/255, green: 57/255, blue: 70/255)
     static let logGold = Color(red: 233/255, green: 196/255, blue: 106/255)
@@ -28,19 +35,23 @@ private extension Color {
 struct MatchLogView: View {
     let records: [RoundRecord]
     let scoringViewModel: ScoringViewModel
+    var onPopToRoot: (() -> Void)? = nil
 
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
     @State private var saveErrorMessage: String?
     @State private var showSaveErrorAlert = false
 
-    init(records: [RoundRecord], scoringViewModel: ScoringViewModel) {
+    init(records: [RoundRecord], scoringViewModel: ScoringViewModel, onPopToRoot: (() -> Void)? = nil) {
         self.records = records
         self.scoringViewModel = scoringViewModel
+        self.onPopToRoot = onPopToRoot
     }
 
-    init(gameSession: GameSession, scoringViewModel: ScoringViewModel) {
+    init(gameSession: GameSession, scoringViewModel: ScoringViewModel, onPopToRoot: (() -> Void)? = nil) {
         self.records = gameSession.roundRecords
         self.scoringViewModel = scoringViewModel
+        self.onPopToRoot = onPopToRoot
     }
 
     private var sortedRecords: [RoundRecord] {
@@ -141,6 +152,20 @@ struct MatchLogView: View {
         }
         .navigationTitle("历史日志")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    if let pop = onPopToRoot {
+                        pop()
+                    } else {
+                        dismiss()
+                    }
+                } label: {
+                    Image(systemName: "house.fill")
+                        .foregroundStyle(Color.logRed)
+                }
+            }
+        }
         .alert("提示", isPresented: $showSaveErrorAlert) {
             Button("确定", role: .cancel) {
                 saveErrorMessage = nil
@@ -155,7 +180,7 @@ struct MatchLogView: View {
     private func logRow(record: RoundRecord) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("第 \(record.roundNumber) 局")
+                Text("\(roundMmDdFormatter.string(from: record.timestamp)) 第\(record.roundNumber)局")
                     .font(.headline.weight(.bold))
                     .foregroundStyle(Color.logRed)
                 Spacer()

@@ -21,22 +21,27 @@ private extension Color {
 // MARK: - StatsView
 
 struct StatsView: View {
+    var onPopToRoot: (() -> Void)? = nil
+
+    @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
     @Query(sort: \Player.name) private var players: [Player]
+    @StateObject private var scoringViewModel = ScoringViewModel()
 
     private var winKing: Player? {
-        players.max(by: { $0.winCount < $1.winCount })
+        players.max(by: { scoringViewModel.getWinCount(for: $0, context: modelContext) < scoringViewModel.getWinCount(for: $1, context: modelContext) })
     }
     private var loseKing: Player? {
-        players.max(by: { $0.loseCount < $1.loseCount })
+        players.max(by: { scoringViewModel.getLoseCount(for: $0, context: modelContext) < scoringViewModel.getLoseCount(for: $1, context: modelContext) })
     }
     private var kongKing: Player? {
-        players.max(by: { ($0.totalExposedKong + $0.totalConcealedKong) < ($1.totalExposedKong + $1.totalConcealedKong) })
+        players.max(by: { scoringViewModel.getTotalKongs(for: $0, context: modelContext) < scoringViewModel.getTotalKongs(for: $1, context: modelContext) })
     }
 
     private var hasAnyData: Bool {
-        (winKing?.winCount ?? 0) > 0 ||
-        (loseKing?.loseCount ?? 0) > 0 ||
-        (kongKing.map { $0.totalExposedKong + $0.totalConcealedKong } ?? 0) > 0
+        (winKing.map { scoringViewModel.getWinCount(for: $0, context: modelContext) } ?? 0) > 0 ||
+        (loseKing.map { scoringViewModel.getLoseCount(for: $0, context: modelContext) } ?? 0) > 0 ||
+        (kongKing.map { scoringViewModel.getTotalKongs(for: $0, context: modelContext) } ?? 0) > 0
     }
 
     var body: some View {
@@ -75,6 +80,20 @@ struct StatsView: View {
         }
         .navigationTitle("战绩统计")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    if let pop = onPopToRoot {
+                        pop()
+                    } else {
+                        dismiss()
+                    }
+                } label: {
+                    Image(systemName: "house.fill")
+                        .foregroundStyle(Color.statsRed)
+                }
+            }
+        }
     }
 
     private var titleSection: some View {
@@ -91,7 +110,7 @@ struct StatsView: View {
             icon: "crown.fill",
             iconColor: Color.statsGold,
             player: winKing,
-            value: winKing?.winCount ?? 0,
+            value: winKing.map { scoringViewModel.getWinCount(for: $0, context: modelContext) } ?? 0,
             valueLabel: "总胡牌次数",
             emptyMessage: "暂无数据，大家继续努力"
         )
@@ -103,7 +122,7 @@ struct StatsView: View {
             icon: "flame.fill",
             iconColor: Color.orange,
             player: loseKing,
-            value: loseKing?.loseCount ?? 0,
+            value: loseKing.map { scoringViewModel.getLoseCount(for: $0, context: modelContext) } ?? 0,
             valueLabel: "总点炮次数",
             emptyMessage: "暂无数据，大家继续努力"
         )
@@ -115,7 +134,7 @@ struct StatsView: View {
             icon: "dumbbell.fill",
             iconColor: Color.statsRed,
             player: kongKing,
-            value: kongKing.map { $0.totalExposedKong + $0.totalConcealedKong } ?? 0,
+            value: kongKing.map { scoringViewModel.getTotalKongs(for: $0, context: modelContext) } ?? 0,
             valueLabel: "总杠牌次数",
             emptyMessage: "暂无数据，大家继续努力"
         )

@@ -54,6 +54,7 @@ struct ScoreResultView: View {
     let scoringViewModel: ScoringViewModel
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
 
     private var roundDeltas: [UUID: Int] {
         guard let record = currentRecord else { return [:] }
@@ -189,7 +190,7 @@ struct ScoreResultView: View {
                 Text(player.name)
                     .font(.headline.weight(.semibold))
                     .foregroundStyle(.primary)
-                Text("总积分 \(player.totalScore)")
+                Text("总积分 \(scoringViewModel.getTotalScore(for: player, context: modelContext))")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -317,7 +318,7 @@ struct ScoreResultView: View {
                 HStack(spacing: 8) {
                     Image(systemName: "person.2.fill")
                         .font(.title2)
-                    Text("换人：退回大厅选人")
+                    Text("换人 / 返回大厅")
                         .font(.headline.weight(.bold))
                 }
                 .foregroundStyle(Color.resultGold)
@@ -331,7 +332,7 @@ struct ScoreResultView: View {
             }
             .buttonStyle(ScaleButtonStyle())
 
-            NavigationLink(destination: RecentMatchLogWrapperView()) {
+            NavigationLink(destination: RecentMatchLogWrapperView(onPopToRoot: onDismissToLobby)) {
                 HStack(spacing: 8) {
                     Image(systemName: "list.bullet.clipboard.fill")
                         .font(.title2)
@@ -349,7 +350,7 @@ struct ScoreResultView: View {
             }
             .buttonStyle(ScaleButtonStyle())
 
-            NavigationLink(destination: StatsView()) {
+            NavigationLink(destination: StatsView(onPopToRoot: onDismissToLobby)) {
                 HStack(spacing: 8) {
                     Image(systemName: "chart.bar.fill")
                         .font(.title2)

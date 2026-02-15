@@ -28,6 +28,7 @@ struct LobbyView: View {
 
     @State private var selectedPlayerIDs: Set<UUID> = []
     @State private var showAddPlayerSheet = false
+    @State private var editingPlayer: Player?
     @State private var playersToTable: [Player]?
     @State private var navigateToTable = false
 
@@ -73,15 +74,25 @@ struct LobbyView: View {
             }
             .navigationBarHidden(true)
             .sheet(isPresented: $showAddPlayerSheet) {
-                AddPlayerSheet(onSave: { name, avatarData in
-                    let player = Player(
-                        name: name.trimmingCharacters(in: .whitespacesAndNewlines),
-                        avatarIcon: "person.circle.fill",
-                        avatarData: avatarData
-                    )
-                    modelContext.insert(player)
+                AddPlayerSheet(editingPlayer: editingPlayer, existingPlayers: players, onSave: { name, avatarData in
+                    let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if let editing = editingPlayer {
+                        editing.name = trimmedName
+                        editing.avatarData = avatarData
+                        try? modelContext.save()
+                    } else {
+                        let player = Player(
+                            name: trimmedName,
+                            avatarIcon: "person.circle.fill",
+                            avatarData: avatarData
+                        )
+                        modelContext.insert(player)
+                    }
                     showAddPlayerSheet = false
                 })
+            }
+            .onChange(of: showAddPlayerSheet) { _, isShowing in
+                if !isShowing { editingPlayer = nil }
             }
         }
     }
@@ -132,6 +143,10 @@ struct LobbyView: View {
                     isSelected: selectedPlayerIDs.contains(player.id),
                     scoringViewModel: scoringViewModel,
                     onTap: { toggleSelection(player.id) },
+                    onEdit: {
+                        editingPlayer = player
+                        showAddPlayerSheet = true
+                    },
                     onDelete: {
                         modelContext.delete(player)
                         try? modelContext.save()
@@ -191,6 +206,7 @@ struct LobbyView: View {
 
     private var addPlayerButton: some View {
         Button {
+            editingPlayer = nil
             showAddPlayerSheet = true
         } label: {
             HStack(spacing: 8) {
@@ -219,6 +235,12 @@ struct LobbyView: View {
 // MARK: - 战绩日志包装（大厅入口：最近牌局或空状态）
 
 struct RecentMatchLogWrapperView: View {
+    var onPopToRoot: (() -> Void)? = nil
+
+    init(onPopToRoot: (() -> Void)? = nil) {
+        self.onPopToRoot = onPopToRoot
+    }
+
     @Query(sort: \RoundRecord.timestamp, order: .reverse) private var recentRecords: [RoundRecord]
     private var scoringViewModel = ScoringViewModel()
 
@@ -239,7 +261,7 @@ struct RecentMatchLogWrapperView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             } else {
-                MatchLogView(records: recentRecords, scoringViewModel: scoringViewModel)
+                MatchLogView(records: recentRecords, scoringViewModel: scoringViewModel, onPopToRoot: onPopToRoot)
             }
         }
         .navigationTitle("战绩日志")
@@ -254,6 +276,7 @@ private struct PlayerCardView: View {
     let isSelected: Bool
     let scoringViewModel: ScoringViewModel
     let onTap: () -> Void
+    let onEdit: () -> Void
     let onDelete: () -> Void
 
     @Environment(\.modelContext) private var modelContext
@@ -278,7 +301,7 @@ private struct PlayerCardView: View {
                     .font(.headline.weight(.bold))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
-                Text("总积分 \(player.totalScore)")
+                Text("总积分 \(scoringViewModel.getTotalScore(for: player, context: modelContext))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 if todayDelta != 0 {
@@ -304,6 +327,11 @@ private struct PlayerCardView: View {
         }
         .buttonStyle(ScaleButtonStyle())
         .contextMenu {
+            Button {
+                onEdit()
+            } label: {
+                Label("编辑家人信息", systemImage: "pencil")
+            }
             Button("删除家人", role: .destructive, action: onDelete)
         }
     }
@@ -316,7 +344,15 @@ private struct AddPlayerSheet: View {
     @State private var name = ""
     @State private var selectedItem: PhotosPickerItem?
     @State private var selectedImageData: Data?
+    @State private var showDuplicateNameAlert = false
+    var editingPlayer: Player?
+    let existingPlayers: [Player]
     let onSave: (String, Data?) -> Void
+
+    private var otherPlayersForNameCheck: [Player] {
+        guard let editing = editingPlayer else { return existingPlayers }
+        return existingPlayers.filter { $0.id != editing.id }
+    }
 
     var body: some View {
         NavigationStack {
@@ -325,7 +361,7 @@ private struct AddPlayerSheet: View {
                     TextField("姓名", text: $name)
                         .textContentType(.name)
                 } header: {
-                    Text("新家人")
+                    Text(editingPlayer == nil ? "新家人" : "家人信息")
                 }
                 Section {
                     PhotosPicker(
@@ -366,8 +402,14 @@ private struct AddPlayerSheet: View {
                     Text("头像")
                 }
             }
-            .navigationTitle("添加新家人")
+            .navigationTitle(editingPlayer == nil ? "添加新家人" : "编辑家人信息")
             .navigationBarTitleDisplayMode(.inline)
+            .onAppear {
+                if let editing = editingPlayer {
+                    name = editing.name
+                    selectedImageData = editing.avatarData
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("取消") {
@@ -376,12 +418,22 @@ private struct AddPlayerSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("确定") {
-                        guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-                        onSave(name, selectedImageData)
+                        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !trimmedName.isEmpty else { return }
+                        if otherPlayersForNameCheck.contains(where: { $0.name == trimmedName }) {
+                            showDuplicateNameAlert = true
+                            return
+                        }
+                        onSave(trimmedName, selectedImageData)
                         dismiss()
                     }
                     .fontWeight(.semibold)
                 }
+            }
+            .alert("名字已存在", isPresented: $showDuplicateNameAlert) {
+                Button("好的", role: .cancel) {}
+            } message: {
+                Text("名字已存在，请加个后缀区分（如：大舅2）")
             }
         }
     }

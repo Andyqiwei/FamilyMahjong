@@ -16,6 +16,17 @@ private extension Color {
     static let inputBackground = Color(red: 248/255, green: 249/255, blue: 250/255)
 }
 
+private let roundMmDdFormatter: DateFormatter = {
+    let f = DateFormatter()
+    f.dateFormat = "MM-dd"
+    f.locale = Locale(identifier: "zh_CN")
+    return f
+}()
+
+private func roundDisplayText(date: Date, roundNumber: Int) -> String {
+    "\(roundMmDdFormatter.string(from: date)) 第\(roundNumber)局"
+}
+
 // MARK: - RoundInputView
 
 struct RoundInputView: View {
@@ -33,6 +44,7 @@ struct RoundInputView: View {
     @State private var kongDetails: [UUID: KongDetail] = [:]
     @State private var showScoreResult = false
     @State private var popToTableAfterResult = false
+    @State private var justCreatedRecord: RoundRecord? = nil
     @State private var saveErrorMessage: String?
     @State private var showSaveErrorAlert = false
 
@@ -40,7 +52,7 @@ struct RoundInputView: View {
 
     private var roundNumber: Int {
         if let rec = editingRecord { return rec.roundNumber }
-        return gameSession.roundRecords.count + 1
+        return viewModel.getNextRoundNumberForToday(context: modelContext)
     }
 
     private var canConfirm: Bool {
@@ -109,6 +121,7 @@ struct RoundInputView: View {
                 isSelfDrawn = false
                 selectedLoser = nil
                 kongDetails = [:]
+                justCreatedRecord = nil
                 popToTableAfterResult = false
                 dismiss()
             }
@@ -123,7 +136,10 @@ struct RoundInputView: View {
             }
             ToolbarItem(placement: .principal) {
                 VStack(spacing: 2) {
-                    Text("第 \(roundNumber) 局")
+                    Text(roundDisplayText(
+                        date: isEditMode ? editingRecord!.timestamp : Date(),
+                        roundNumber: roundNumber
+                    ))
                         .font(.caption.weight(.bold))
                         .foregroundStyle(Color.inputRed)
                     Text(isEditMode ? "修改本局结算" : "本局结算")
@@ -455,15 +471,33 @@ struct RoundInputView: View {
                 saveErrorMessage = "保存失败：\(error.localizedDescription)"
                 showSaveErrorAlert = true
             }
-        } else {
-            viewModel.calculateAndApplyRound(
+        } else if let rec = justCreatedRecord {
+            viewModel.updateRound(
+                record: rec,
                 session: gameSession,
                 winnerID: winner.id,
                 loserID: isSelfDrawn ? nil : selectedLoser?.id,
                 isSelfDrawn: isSelfDrawn,
                 kongs: kongsArray
             )
+            do {
+                try modelContext.save()
+                showScoreResult = true
+            } catch {
+                saveErrorMessage = "保存失败：\(error.localizedDescription)"
+                showSaveErrorAlert = true
+            }
+        } else {
+            viewModel.calculateAndApplyRound(
+                session: gameSession,
+                roundNumber: roundNumber,
+                winnerID: winner.id,
+                loserID: isSelfDrawn ? nil : selectedLoser?.id,
+                isSelfDrawn: isSelfDrawn,
+                kongs: kongsArray
+            )
             try? modelContext.save()
+            justCreatedRecord = gameSession.roundRecords.last
             showScoreResult = true
         }
     }
