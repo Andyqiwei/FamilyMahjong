@@ -29,6 +29,12 @@ struct GameTableView: View {
     @State private var selectedDealerID: UUID?
     @State private var sessionCreated: GameSession?
     @State private var navigateToRound = false
+    @State private var isPlaying = false
+
+    // 打牌动画用
+    @State private var tileRotation: Double = 0
+    @State private var diceRotation: Double = 0
+    @State private var stackOffset: CGFloat = 0
 
     private let seatW: CGFloat = 80
     private let seatH: CGFloat = 100
@@ -96,13 +102,24 @@ struct GameTableView: View {
                         .position(x: centerX + tableSide / 2 + gap + seatHalfW, y: centerY)
                     }
 
-                    // 开始本局按钮（桌心）
-                    startButton
-                        .position(x: centerX, y: centerY)
+                    // 桌心：选庄时显示开始按钮，游戏中显示打牌动画
+                    if isPlaying {
+                        playingCenterUI
+                            .position(x: centerX, y: centerY)
+                    } else {
+                        startButton
+                            .position(x: centerX, y: centerY)
+                    }
                 }
                 .frame(width: width, height: height)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .onChange(of: navigateToRound) { _, newValue in
+            if newValue == false {
+                isPlaying = false
+                selectedDealerID = nil
+            }
         }
         .navigationTitle("选庄")
         .navigationBarTitleDisplayMode(.inline)
@@ -166,6 +183,72 @@ struct GameTableView: View {
         .buttonStyle(.plain)
     }
 
+    // MARK: - 打牌中 UI（动画 + 提示 + 结束按钮）
+
+    private var playingCenterUI: some View {
+        VStack(spacing: 16) {
+            // 动画区域：麻将牌与骰子
+            ZStack {
+                Image(systemName: "squareshape.fill")
+                    .font(.system(size: 36))
+                    .foregroundStyle(Color.tableGold.opacity(0.9))
+                    .rotationEffect(.degrees(tileRotation))
+                    .offset(x: -28, y: -12)
+
+                Image(systemName: "square.stack.3d.up.fill")
+                    .font(.system(size: 28))
+                    .foregroundStyle(Color.tableRed.opacity(0.9))
+                    .rotationEffect(.degrees(-tileRotation * 0.7))
+                    .offset(x: 24, y: 8)
+
+                Image(systemName: "dice.fill")
+                    .font(.system(size: 24))
+                    .foregroundStyle(.white.opacity(0.95))
+                    .rotationEffect(.degrees(diceRotation))
+                    .offset(x: stackOffset * 4, y: -20)
+            }
+            .frame(height: 60)
+            .onAppear {
+                withAnimation(.linear(duration: 2.5).repeatForever(autoreverses: false)) {
+                    tileRotation = 360
+                }
+                withAnimation(.linear(duration: 1.8).repeatForever(autoreverses: false)) {
+                    diceRotation = 360
+                }
+                withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
+                    stackOffset = 6
+                }
+            }
+
+            // 提示文字（跳动）
+            Text("正在激烈交锋中...")
+                .font(.title3.weight(.bold))
+                .foregroundStyle(.white)
+                .shadow(color: .black.opacity(0.2), radius: 2, y: 1)
+
+            // 结束本局按钮
+            Button {
+                navigateToRound = true
+            } label: {
+                Text("结束本局，开始算分")
+                    .font(.headline.weight(.bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 200, height: 48)
+                    .background(
+                        LinearGradient(
+                            colors: [Color.tableRed, Color.tableRed.opacity(0.85)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .shadow(color: Color.tableRed.opacity(0.4), radius: 8, y: 4)
+            }
+            .buttonStyle(PlayingButtonStyle())
+        }
+        .padding(.vertical, 12)
+    }
+
     private func startGame() {
         guard let dealerID = selectedDealerID else { return }
         let selectedIDs = Set(players.map(\.id))
@@ -183,7 +266,9 @@ struct GameTableView: View {
         if let session = existingSession {
             session.currentDealerID = dealerID
             sessionCreated = session
-            navigateToRound = true
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
+                isPlaying = true
+            }
         } else {
             createNewSession(dealerID: dealerID)
         }
@@ -194,7 +279,19 @@ struct GameTableView: View {
         modelContext.insert(session)
         session.players.append(contentsOf: players)
         sessionCreated = session
-        navigateToRound = true
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
+            isPlaying = true
+        }
+    }
+}
+
+// MARK: - 按压缩放按钮样式（春节 Q 弹）
+
+private struct PlayingButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.96 : 1.0)
+            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: configuration.isPressed)
     }
 }
 

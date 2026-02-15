@@ -147,15 +147,6 @@ struct RoundInputView: View {
                         .foregroundStyle(.primary)
                 }
             }
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    // 帮助占位
-                } label: {
-                    Image(systemName: "questionmark.circle.fill")
-                        .font(.title3)
-                        .foregroundStyle(Color.inputRed)
-                }
-            }
         }
         .alert("提示", isPresented: $showSaveErrorAlert) {
             Button("确定", role: .cancel) {
