@@ -103,7 +103,8 @@ struct RoundInputView: View {
                 NavigationLink(
                     destination: ScoreResultView(
                         gameSession: gameSession,
-                        currentRecord: gameSession.roundRecords.last,
+                        // 🚀 核心修复：绝对不准用 .last，强绑定刚才生成的实例或编辑的实例！
+                        currentRecord: justCreatedRecord ?? editingRecord,
                         popToTableAfterResult: $popToTableAfterResult,
                         onDismissToLobby: onDismissToLobby,
                         scoringViewModel: viewModel
@@ -459,6 +460,7 @@ struct RoundInputView: View {
         let kongsArray: [KongDetail] = playersInDisplayOrder.map { player in
             kongDetails[player.id] ?? KongDetail(playerID: player.id, exposedKongCount: 0, concealedKongCount: 0)
         }
+        
         if let rec = editingRecord {
             viewModel.updateRound(
                 record: rec,
@@ -492,16 +494,19 @@ struct RoundInputView: View {
                 showSaveErrorAlert = true
             }
         } else {
-            viewModel.calculateAndApplyRound(
+            let currentRoundNum = self.roundNumber
+            
+            let newRecord = viewModel.calculateAndApplyRound(
                 session: gameSession,
-                roundNumber: roundNumber,
+                roundNumber: currentRoundNum,
                 winnerID: winner.id,
                 loserID: isSelfDrawn ? nil : selectedLoser?.id,
                 isSelfDrawn: isSelfDrawn,
                 kongs: kongsArray
             )
             try? modelContext.save()
-            justCreatedRecord = gameSession.roundRecords.last
+            
+            justCreatedRecord = newRecord
             showScoreResult = true
         }
     }
