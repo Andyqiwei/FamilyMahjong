@@ -130,6 +130,7 @@ struct GameTableView: View {
                         destination: RoundInputView(
                             gameSession: session,
                             viewModel: scoringViewModel,
+                            onPopToTable: { navigateToRound = false },
                             onDismissToLobby: onDismissToLobby
                         ),
                         isActive: $navigateToRound

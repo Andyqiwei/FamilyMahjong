@@ -33,6 +33,8 @@ struct RoundInputView: View {
     let gameSession: GameSession
     let viewModel: ScoringViewModel
     var editingRecord: RoundRecord? = nil
+    /// 由选庄页传入时，「原班人马」直接回到选庄页，跳过本结算页
+    var onPopToTable: (() -> Void)? = nil
     var onDismissToLobby: (() -> Void)?
 
     @Environment(\.dismiss) private var dismiss
@@ -106,6 +108,7 @@ struct RoundInputView: View {
                         // 🚀 核心修复：绝对不准用 .last，强绑定刚才生成的实例或编辑的实例！
                         currentRecord: justCreatedRecord ?? editingRecord,
                         popToTableAfterResult: $popToTableAfterResult,
+                        onPopToTable: onPopToTable,
                         onDismissToLobby: onDismissToLobby,
                         scoringViewModel: viewModel
                     ),

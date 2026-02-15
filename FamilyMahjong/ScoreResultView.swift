@@ -50,6 +50,8 @@ struct ScoreResultView: View {
     let gameSession: GameSession
     let currentRecord: RoundRecord?
     @Binding var popToTableAfterResult: Bool
+    /// 由选庄页传入时，点「原班人马」直接回到选庄页，跳过结算页
+    var onPopToTable: (() -> Void)? = nil
     var onDismissToLobby: (() -> Void)?
     let scoringViewModel: ScoringViewModel
 
@@ -314,8 +316,12 @@ struct ScoreResultView: View {
     private var bottomButtons: some View {
         VStack(spacing: 14) {
             Button {
-                popToTableAfterResult = true
-                dismiss()
+                if let onPopToTable {
+                    onPopToTable()
+                } else {
+                    popToTableAfterResult = true
+                    dismiss()
+                }
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "arrow.clockwise.circle.fill")

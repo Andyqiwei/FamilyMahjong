@@ -157,6 +157,7 @@ final class ScoringViewModel: ObservableObject {
 
     /// 根据本局结果追加一条 RoundRecord。分数与统计由 RoundRecord 唯一真相，通过 getTotalScore 等实时计算。
     /// 调用方需保证 session.players 为 4 人且 winnerID/loserID/kongs 中的 playerID 均能在 session.players 中找到。
+    @discardableResult
     func calculateAndApplyRound(
         session: GameSession,
         roundNumber: Int,
@@ -164,10 +165,10 @@ final class ScoringViewModel: ObservableObject {
         loserID: UUID?,
         isSelfDrawn: Bool,
         kongs: [KongDetail]
-    ) {
+    ) -> RoundRecord? { // 👈 增加返回值类型
         let players = session.players
-        guard players.count == 4 else { return }
-        guard players.first(where: { $0.id == winnerID }) != nil else { return }
+        guard players.count == 4 else { return nil }
+        guard players.first(where: { $0.id == winnerID }) != nil else { return nil }
 
         let dealerID = session.currentDealerID
         let newRecord = RoundRecord(
@@ -181,6 +182,8 @@ final class ScoringViewModel: ObservableObject {
         )
         session.roundRecords.append(newRecord)
         newRecord.gameSession = session
+        
+        return newRecord // 👈 必须把刚建好的记录抛出去
     }
 
     // MARK: - 撤销（仅删 RoundRecord）
