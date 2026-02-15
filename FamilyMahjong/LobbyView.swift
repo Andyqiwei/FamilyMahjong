@@ -100,7 +100,7 @@ struct LobbyView: View {
     // MARK: - 标题栏
 
     private var titleBar: some View {
-        ZStack(alignment: .topTrailing) {
+        ZStack(alignment: .top) {
             VStack(spacing: 4) {
                 Text("家庭麻将馆")
                     .font(.system(size: 28, weight: .bold))
@@ -116,9 +116,25 @@ struct LobbyView: View {
             .padding(.vertical, 20)
             .background(Color.lobbyBackground)
             .shadow(color: .black.opacity(0.06), radius: 4, y: 2)
+            HStack {
+                NavigationLink(destination: DataManagementView()) {
+                    Label("设置", systemImage: "gearshape.fill")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(Color.lobbyRed)
+                }
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, 20)
+            .padding(.top, 12)
             HStack(spacing: 16) {
                 NavigationLink(destination: RecentMatchLogWrapperView()) {
                     Image(systemName: "doc.text")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(Color.lobbyRed)
+                }
+                NavigationLink(destination: ScoreAdjustmentWrapperView()) {
+                    Image(systemName: "equal.circle")
                         .font(.body.weight(.semibold))
                         .foregroundStyle(Color.lobbyRed)
                 }
@@ -128,6 +144,7 @@ struct LobbyView: View {
                         .foregroundStyle(Color.lobbyRed)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .trailing)
             .padding(.trailing, 20)
             .padding(.top, 12)
         }
@@ -229,6 +246,20 @@ struct LobbyView: View {
             .shadow(radius: 8, y: 4)
         }
         .buttonStyle(ScaleButtonStyle())
+    }
+}
+
+// MARK: - 分数平账包装（大厅入口）
+
+struct ScoreAdjustmentWrapperView: View {
+    @Query(sort: \Player.name) private var players: [Player]
+    @Environment(\.modelContext) private var modelContext
+    private var scoringViewModel = ScoringViewModel()
+
+    var body: some View {
+        ScoreAdjustmentView(players: players, scoringViewModel: scoringViewModel)
+            .navigationTitle("分数平账 / 初始化")
+            .navigationBarTitleDisplayMode(.inline)
     }
 }
 

@@ -16,6 +16,13 @@ struct KongDetail: Codable {
     var concealedKongCount: Int // 暗杠数
 }
 
+// MARK: - ScoreAdjustment（平账明细）
+
+struct ScoreAdjustment: Codable {
+    var playerName: String
+    var delta: Int
+}
+
 // MARK: - Player（玩家）
 
 @Model
@@ -72,6 +79,8 @@ final class RoundRecord {
     var isSelfDrawn: Bool
     var kongDetails: [KongDetail]
     var dealerID: UUID
+    var isAdjustment: Bool = false
+    var adjustments: [ScoreAdjustment] = []
 
     var gameSession: GameSession?
 
@@ -84,7 +93,9 @@ final class RoundRecord {
         isSelfDrawn: Bool,
         kongDetails: [KongDetail] = [],
         gameSession: GameSession? = nil,
-        dealerID: UUID
+        dealerID: UUID,
+        isAdjustment: Bool = false,
+        adjustments: [ScoreAdjustment] = []
     ) {
         self.id = id
         self.timestamp = timestamp
@@ -95,5 +106,7 @@ final class RoundRecord {
         self.kongDetails = kongDetails
         self.gameSession = gameSession
         self.dealerID = dealerID
+        self.isAdjustment = isAdjustment
+        self.adjustments = adjustments
     }
 }

@@ -19,6 +19,16 @@ final class ScoringViewModel: ObservableObject {
     func roundScoreDeltas(record: RoundRecord, players: [Player]) -> [UUID: Int] {
         var deltas: [UUID: Int] = [:]
         for p in players { deltas[p.id] = 0 }
+
+        if record.isAdjustment {
+            for adj in record.adjustments {
+                if let p = players.first(where: { $0.name == adj.playerName }) {
+                    deltas[p.id, default: 0] += adj.delta
+                }
+            }
+            return deltas
+        }
+
         guard players.count == 4,
               let winner = players.first(where: { $0.id == record.winnerID }) else { return deltas }
         let others = players.filter { $0.id != record.winnerID }
@@ -67,6 +77,7 @@ final class ScoringViewModel: ObservableObject {
 
     /// 只读生成本局逐笔积分转移列表（谁给谁多少分），用于结果页流转展示。仅包含 amount > 0 的条目。
     func roundTransfers(record: RoundRecord, players: [Player]) -> [(payerID: UUID, payeeID: UUID, amount: Int)] {
+        if record.isAdjustment { return [] }
         var result: [(payerID: UUID, payeeID: UUID, amount: Int)] = []
         guard players.count == 4,
               let winner = players.first(where: { $0.id == record.winnerID }) else { return result }
@@ -196,9 +207,12 @@ final class ScoringViewModel: ObservableObject {
         guard let allRecords = try? context.fetch(descriptor) else { return [] }
         let playerID = player.id
         return allRecords.filter { record in
-            record.winnerID == playerID ||
-            record.loserID == playerID ||
-            record.kongDetails.contains { $0.playerID == playerID }
+            if record.isAdjustment {
+                return record.adjustments.contains { $0.playerName == player.name }
+            }
+            return record.winnerID == playerID ||
+                record.loserID == playerID ||
+                record.kongDetails.contains { $0.playerID == playerID }
         }
     }
 
@@ -208,7 +222,8 @@ final class ScoringViewModel: ObservableObject {
         let playerID = player.id
         var total = 0
         for record in records {
-            guard let players = record.gameSession?.players, players.count == 4 else { continue }
+            guard let players = record.gameSession?.players, !players.isEmpty else { continue }
+            guard record.isAdjustment || players.count == 4 else { continue }
             let deltas = roundScoreDeltas(record: record, players: players)
             total += deltas[playerID] ?? 0
         }
@@ -217,17 +232,17 @@ final class ScoringViewModel: ObservableObject {
 
     /// 该玩家总胡牌次数。
     func getWinCount(for player: Player, context: ModelContext) -> Int {
-        recordsInvolving(player: player, context: context).filter { $0.winnerID == player.id }.count
+        recordsInvolving(player: player, context: context).filter { $0.winnerID == player.id && !$0.isAdjustment }.count
     }
 
     /// 该玩家总点炮次数。
     func getLoseCount(for player: Player, context: ModelContext) -> Int {
-        recordsInvolving(player: player, context: context).filter { $0.loserID == player.id }.count
+        recordsInvolving(player: player, context: context).filter { $0.loserID == player.id && !$0.isAdjustment }.count
     }
 
     /// 该玩家总杠牌次数（明杠 + 暗杠）。
     func getTotalKongs(for player: Player, context: ModelContext) -> Int {
-        let records = recordsInvolving(player: player, context: context)
+        let records = recordsInvolving(player: player, context: context).filter { !$0.isAdjustment }
         let playerID = player.id
         return records.reduce(0) { sum, record in
             let k = record.kongDetails.first { $0.playerID == playerID }
@@ -252,19 +267,372 @@ final class ScoringViewModel: ObservableObject {
         guard let todayRecords = try? context.fetch(descriptor) else { return 0 }
 
         let playerID = player.id
+        let playerName = player.name
         let participatingRecords = todayRecords.filter { record in
-            record.winnerID == playerID ||
-            record.loserID == playerID ||
-            record.kongDetails.contains { $0.playerID == playerID }
+            if record.isAdjustment {
+                return record.adjustments.contains { $0.playerName == playerName }
+            }
+            return record.winnerID == playerID ||
+                record.loserID == playerID ||
+                record.kongDetails.contains { $0.playerID == playerID }
         }
 
         var totalDelta = 0
         for record in participatingRecords {
-            guard let players = record.gameSession?.players, players.count == 4 else { continue }
+            guard let players = record.gameSession?.players, !players.isEmpty else { continue }
+            guard record.isAdjustment || players.count == 4 else { continue }
             let deltas = roundScoreDeltas(record: record, players: players)
             totalDelta += deltas[playerID] ?? 0
         }
 
         return totalDelta
+    }
+
+    // MARK: - CSV 引擎
+
+    /// CSV 导入模式：追加或覆盖。
+    enum ImportMode {
+        case append
+        case overwrite
+    }
+
+    /// CSV 导入结果：成功或格式错误。
+    enum ImportResult {
+        case success
+        case formatError(reason: String)
+    }
+
+    /// 导出日志为 CSV 字符串。表头：Type,Timestamp,RoundNumber,DealerName,WinnerName,LoserName,IsSelfDrawn,Kongs,Adjustments。使用玩家名字，绝不出现 UUID。
+    func exportCSV(records: [RoundRecord], players: [Player]) -> String {
+        let header = "Type,Timestamp,RoundNumber,DealerName,WinnerName,LoserName,IsSelfDrawn,Kongs,Adjustments"
+        let idToName: [UUID: String] = Dictionary(uniqueKeysWithValues: players.map { ($0.id, $0.name) })
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        dateFormatter.locale = Locale(identifier: "en_US_POSIX")
+
+        var rows: [String] = [header]
+        for record in records {
+            let timeStr = dateFormatter.string(from: record.timestamp)
+            let roundStr = "\(record.roundNumber)"
+
+            if record.isAdjustment {
+                let adjustmentsStr = record.adjustments.map { "\($0.playerName):\($0.delta)" }.joined(separator: "|")
+                let fields = [
+                    escapeCSVField("Adjustment"),
+                    escapeCSVField(timeStr),
+                    escapeCSVField(roundStr),
+                    escapeCSVField(""),
+                    escapeCSVField(""),
+                    escapeCSVField(""),
+                    escapeCSVField(""),
+                    escapeCSVField(""),
+                    escapeCSVField(adjustmentsStr)
+                ]
+                rows.append(fields.joined(separator: ","))
+            } else {
+                let dealerName = idToName[record.dealerID] ?? ""
+                let winnerName = idToName[record.winnerID] ?? ""
+                let loserName: String = record.isSelfDrawn ? "" : (record.loserID.flatMap { idToName[$0] } ?? "")
+                let isSelfDrawnStr = record.isSelfDrawn ? "true" : "false"
+                let kongsStr = record.kongDetails
+                    .compactMap { k -> String? in
+                        guard let name = idToName[k.playerID], !name.isEmpty else { return nil }
+                        return "\(name):\(k.exposedKongCount):\(k.concealedKongCount)"
+                    }
+                    .joined(separator: "|")
+                let fields = [
+                    escapeCSVField("Normal"),
+                    escapeCSVField(timeStr),
+                    escapeCSVField(roundStr),
+                    escapeCSVField(dealerName),
+                    escapeCSVField(winnerName),
+                    escapeCSVField(loserName),
+                    escapeCSVField(isSelfDrawnStr),
+                    escapeCSVField(kongsStr),
+                    escapeCSVField("")
+                ]
+                rows.append(fields.joined(separator: ","))
+            }
+        }
+        return rows.joined(separator: "\n")
+    }
+
+    /// RFC 4180：字段含逗号、换行、双引号时用双引号包裹，内部双引号写作 ""。
+    private func escapeCSVField(_ s: String) -> String {
+        if s.contains(",") || s.contains("\n") || s.contains("\"") {
+            return "\"" + s.replacingOccurrences(of: "\"", with: "\"\"") + "\""
+        }
+        return s
+    }
+
+    /// 解析 CSV 字符串为行（每行为字段数组）。支持引号内逗号、换行与 "" 转义。
+    private func parseCSVRows(_ csvString: String) -> [[String]] {
+        var rows: [[String]] = []
+        var currentRow: [String] = []
+        var currentField = ""
+        var inQuotes = false
+        var i = csvString.startIndex
+
+        func finishRow() {
+            currentRow.append(currentField)
+            currentField = ""
+            rows.append(currentRow)
+            currentRow = []
+        }
+
+        while i < csvString.endIndex {
+            let c = csvString[i]
+
+            if inQuotes {
+                if c == "\"" {
+                    let nextIdx = csvString.index(after: i)
+                    if nextIdx < csvString.endIndex && csvString[nextIdx] == "\"" {
+                        currentField.append("\"")
+                        i = nextIdx
+                    } else {
+                        inQuotes = false
+                    }
+                } else {
+                    currentField.append(c)
+                }
+                i = csvString.index(after: i)
+                continue
+            }
+
+            switch c {
+            case "\"":
+                inQuotes = true
+                i = csvString.index(after: i)
+            case ",":
+                currentRow.append(currentField)
+                currentField = ""
+                i = csvString.index(after: i)
+            case "\n":
+                finishRow()
+                i = csvString.index(after: i)
+            case "\r":
+                var nextIdx = csvString.index(after: i)
+                if nextIdx < csvString.endIndex && csvString[nextIdx] == "\n" {
+                    nextIdx = csvString.index(after: nextIdx)
+                }
+                finishRow()
+                i = nextIdx
+            default:
+                currentField.append(c)
+                i = csvString.index(after: i)
+            }
+        }
+
+        if !currentField.isEmpty || !currentRow.isEmpty {
+            currentRow.append(currentField)
+            rows.append(currentRow)
+        }
+
+        return rows
+    }
+
+    /// 解析平账明细字符串，格式 "name1:50|name2:-20"（用 | 分隔）。
+    private func parseAdjustments(_ s: String) -> [ScoreAdjustment] {
+        guard !s.trimmingCharacters(in: .whitespaces).isEmpty else { return [] }
+        var result: [ScoreAdjustment] = []
+        for part in s.split(separator: "|", omittingEmptySubsequences: false) {
+            let trimmed = String(part).trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { continue }
+            if let colonIdx = trimmed.firstIndex(of: ":") {
+                let name = String(trimmed[..<colonIdx]).trimmingCharacters(in: .whitespaces)
+                let deltaStr = String(trimmed[trimmed.index(after: colonIdx)...]).trimmingCharacters(in: .whitespaces)
+                if let delta = Int(deltaStr), !name.isEmpty {
+                    result.append(ScoreAdjustment(playerName: name, delta: delta))
+                }
+            }
+        }
+        return result
+    }
+
+    /// 解析杠牌字符串，格式 "name:明杠数:暗杠数|..."（用 | 分隔）。未找到的玩家名跳过。
+    private func parseKongs(_ s: String, nameToPlayer: (String) -> Player?) -> [KongDetail] {
+        let trimmed = s.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return [] }
+        var result: [KongDetail] = []
+        for part in trimmed.split(separator: "|", omittingEmptySubsequences: false) {
+            let parts = part.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
+            guard parts.count >= 3 else { continue }
+            let name = parts[0].trimmingCharacters(in: .whitespaces)
+            guard !name.isEmpty else { continue }
+            let exposed = Int(parts[1].trimmingCharacters(in: .whitespaces)) ?? 0
+            let concealed = Int(parts[2].trimmingCharacters(in: .whitespaces)) ?? 0
+            guard exposed > 0 || concealed > 0 else { continue }
+            guard let player = nameToPlayer(name) else { continue }
+            result.append(KongDetail(playerID: player.id, exposedKongCount: exposed, concealedKongCount: concealed))
+        }
+        return result
+    }
+
+    /// 导入 CSV：解析行，自动创建缺失玩家，根据 mode 覆盖或追加 RoundRecord，并关联 GameSession。
+    /// 列顺序：Type, Timestamp, RoundNumber, DealerName, WinnerName, LoserName, IsSelfDrawn, Kongs, Adjustments
+    /// 若格式有误则返回 .formatError，不会修改数据库；验证通过后才执行导入。
+    func importCSV(csvString: String, context: ModelContext, currentPlayers: [Player], mode: ImportMode) -> ImportResult {
+        let rows = parseCSVRows(csvString)
+        guard rows.count >= 2 else {
+            return .formatError(reason: "缺少表头或数据行，请使用本应用导出的 CSV 格式")
+        }
+        let headerRow = rows[0]
+        guard headerRow.count >= 9 else {
+            return .formatError(reason: "表头列数不足，应为 9 列")
+        }
+        let dataRows = Array(rows.dropFirst())
+
+        for (index, row) in dataRows.enumerated() {
+            guard row.count >= 9 else {
+                return .formatError(reason: "第 \(index + 2) 行列数不足（需 9 列）")
+            }
+            func col(_ i: Int) -> String {
+                row.indices.contains(i) ? row[i].trimmingCharacters(in: .whitespaces) : ""
+            }
+            let typeRaw = col(0).lowercased()
+            let roundNumStr = col(2)
+            let dealerName = col(3)
+            let winnerName = col(4)
+            let adjustmentsStr = col(8)
+
+            guard typeRaw == "normal" || typeRaw == "adjustment" else {
+                return .formatError(reason: "第 \(index + 2) 行 Type 必须为 Normal 或 Adjustment")
+            }
+            guard let _ = Int(roundNumStr) else {
+                return .formatError(reason: "第 \(index + 2) 行局号必须为数字")
+            }
+
+            if typeRaw == "adjustment" {
+                let adjustments = parseAdjustments(adjustmentsStr)
+                guard !adjustments.isEmpty else {
+                    return .formatError(reason: "第 \(index + 2) 行平账局 Adjustments 不能为空")
+                }
+            } else {
+                guard !dealerName.isEmpty else {
+                    return .formatError(reason: "第 \(index + 2) 行普通局庄家名不能为空")
+                }
+                guard !winnerName.isEmpty else {
+                    return .formatError(reason: "第 \(index + 2) 行普通局赢家名不能为空")
+                }
+            }
+        }
+
+        var nameToPlayer: [String: Player] = Dictionary(uniqueKeysWithValues: currentPlayers.map { ($0.name, $0) })
+        func resolveOrCreatePlayer(_ name: String) -> Player? {
+            let trimmed = name.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { return nil }
+            if let p = nameToPlayer[trimmed] { return p }
+            let newPlayer = Player(name: trimmed, avatarIcon: "person.circle.fill")
+            context.insert(newPlayer)
+            nameToPlayer[trimmed] = newPlayer
+            return newPlayer
+        }
+
+        if mode == .overwrite {
+            let descriptor = FetchDescriptor<RoundRecord>()
+            if let allRecords = try? context.fetch(descriptor) {
+                for r in allRecords {
+                    context.delete(r)
+                }
+            }
+        }
+
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        dateFormatter.locale = Locale(identifier: "en_US_POSIX")
+
+        for row in dataRows where nameToPlayer.isEmpty {
+            guard row.count >= 9 else { continue }
+            let typeRaw = row.indices.contains(0) ? row[0].trimmingCharacters(in: .whitespaces).lowercased() : ""
+            if typeRaw == "adjustment" {
+                let adjustments = parseAdjustments(row.indices.contains(8) ? row[8] : "")
+                for adj in adjustments { _ = resolveOrCreatePlayer(adj.playerName) }
+            } else {
+                let dealerName = row.indices.contains(3) ? row[3].trimmingCharacters(in: .whitespaces) : ""
+                let winnerName = row.indices.contains(4) ? row[4].trimmingCharacters(in: .whitespaces) : ""
+                _ = resolveOrCreatePlayer(dealerName)
+                _ = resolveOrCreatePlayer(winnerName)
+            }
+            if !nameToPlayer.isEmpty { break }
+        }
+        guard nameToPlayer.values.first != nil else {
+            return .formatError(reason: "未能解析出任何有效玩家名，请检查数据")
+        }
+        let firstPlayer = nameToPlayer.values.first!
+        let placeholderID = firstPlayer.id
+
+        let session = GameSession(currentDealerID: placeholderID)
+        session.players = Array(nameToPlayer.values)
+        context.insert(session)
+
+        for row in dataRows {
+            guard row.count >= 9 else { continue }
+
+            func col(_ i: Int) -> String {
+                row.indices.contains(i) ? row[i].trimmingCharacters(in: .whitespaces) : ""
+            }
+
+            let typeRaw = col(0)
+            let timeStr = col(1)
+            let roundNumStr = col(2)
+            let dealerName = col(3)
+            let winnerName = col(4)
+            let loserName = col(5)
+            let isSelfDrawnStr = col(6)
+            let kongsStr = col(7)
+            let adjustmentsStr = col(8)
+
+            guard let roundNum = Int(roundNumStr) else { continue }
+
+            var timestamp = Date()
+            if !timeStr.isEmpty, let d = dateFormatter.date(from: timeStr) {
+                timestamp = d
+            }
+
+            if typeRaw.lowercased() == "adjustment" {
+                let adjustments = parseAdjustments(adjustmentsStr)
+                guard !adjustments.isEmpty else { continue }
+                for adj in adjustments { _ = resolveOrCreatePlayer(adj.playerName) }
+                let placeholder = nameToPlayer.values.first ?? firstPlayer
+                let record = RoundRecord(
+                    timestamp: timestamp,
+                    roundNumber: roundNum,
+                    winnerID: placeholder.id,
+                    loserID: nil,
+                    isSelfDrawn: false,
+                    kongDetails: [],
+                    gameSession: session,
+                    dealerID: placeholder.id,
+                    isAdjustment: true,
+                    adjustments: adjustments
+                )
+                context.insert(record)
+                record.gameSession = session
+                session.roundRecords.append(record)
+            } else {
+                guard let dealer = resolveOrCreatePlayer(dealerName),
+                      let winner = resolveOrCreatePlayer(winnerName) else { continue }
+                let loser = loserName.isEmpty ? nil : resolveOrCreatePlayer(loserName)
+                let isSelfDrawn = isSelfDrawnStr.lowercased() == "true"
+                let kongDetails = parseKongs(kongsStr, nameToPlayer: resolveOrCreatePlayer)
+                let record = RoundRecord(
+                    timestamp: timestamp,
+                    roundNumber: roundNum,
+                    winnerID: winner.id,
+                    loserID: loser?.id,
+                    isSelfDrawn: isSelfDrawn,
+                    kongDetails: kongDetails,
+                    gameSession: session,
+                    dealerID: dealer.id
+                )
+                context.insert(record)
+                record.gameSession = session
+                session.roundRecords.append(record)
+            }
+        }
+
+        session.players = Array(nameToPlayer.values)
+        try? context.save()
+        return .success
     }
 }

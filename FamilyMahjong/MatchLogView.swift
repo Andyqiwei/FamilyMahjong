@@ -121,7 +121,7 @@ struct MatchLogView: View {
                 List {
                     ForEach(sortedRecords, id: \.id) { record in
                         Group {
-                            if let session = record.gameSession {
+                            if let session = record.gameSession, !record.isAdjustment {
                                 NavigationLink {
                                     RoundInputView(
                                         gameSession: session,
@@ -177,7 +177,52 @@ struct MatchLogView: View {
         }
     }
 
+    @ViewBuilder
     private func logRow(record: RoundRecord) -> some View {
+        if record.isAdjustment {
+            adjustmentLogRow(record: record)
+        } else {
+            normalLogRow(record: record)
+        }
+    }
+
+    private func adjustmentLogRow(record: RoundRecord) -> some View {
+        let adjustmentText = record.adjustments.map { adj in
+            let sign = adj.delta >= 0 ? "+" : ""
+            return "\(adj.playerName) \(sign)\(adj.delta)"
+        }.joined(separator: "，")
+
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("\(roundMmDdFormatter.string(from: record.timestamp)) 第\(record.roundNumber)局")
+                    .font(.headline.weight(.bold))
+                    .foregroundStyle(Color.logRed)
+                Spacer()
+                Text(logDateFormatter.string(from: record.timestamp))
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.secondary)
+            }
+            HStack(spacing: 4) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(Color.logGold)
+                Text("分数初始化 / 手动平账")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+            }
+            Text(adjustmentText)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 4)
+        .padding(.horizontal, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color.logGold.opacity(0.25))
+        )
+    }
+
+    private func normalLogRow(record: RoundRecord) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("\(roundMmDdFormatter.string(from: record.timestamp)) 第\(record.roundNumber)局")
