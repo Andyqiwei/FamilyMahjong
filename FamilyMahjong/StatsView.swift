@@ -2,7 +2,7 @@
 //  StatsView.swift
 //  FamilyMahjong
 //
-//  趣味排行榜：雀神、点炮王、杠精转世。
+//  趣味排行榜：大赢家、点炮王、杠精转世。
 //
 
 import SwiftUI
@@ -87,7 +87,7 @@ struct StatsView: View {
 
     private var winKingCard: some View {
         leaderboardCard(
-            title: "雀神 / 胡王",
+            title: "大赢家 / 胡王",
             icon: "crown.fill",
             iconColor: Color.statsGold,
             player: winKing,
@@ -143,20 +143,7 @@ struct StatsView: View {
 
             if let p = player, value > 0 {
                 HStack(spacing: 16) {
-                    Circle()
-                        .fill(
-                            LinearGradient(
-                                colors: [Color.statsGold.opacity(0.5), Color.statsGoldDark.opacity(0.4)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .frame(width: 56, height: 56)
-                        .overlay(
-                            Image(systemName: p.avatarIcon)
-                                .font(.system(size: 28, weight: .bold))
-                                .foregroundStyle(Color.statsRed)
-                        )
+                        PlayerAvatarView(player: p, size: 56, iconColor: Color.statsRed)
                     VStack(alignment: .leading, spacing: 4) {
                         Text(p.name)
                             .font(.title3.weight(.bold))

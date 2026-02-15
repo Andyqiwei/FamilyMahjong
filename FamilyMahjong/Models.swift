@@ -23,6 +23,7 @@ final class Player {
     var id: UUID
     var name: String
     var avatarIcon: String
+    var avatarData: Data?
     var totalScore: Int
     var winCount: Int
     var loseCount: Int
@@ -35,6 +36,7 @@ final class Player {
         id: UUID = UUID(),
         name: String,
         avatarIcon: String,
+        avatarData: Data? = nil,
         totalScore: Int = 0,
         winCount: Int = 0,
         loseCount: Int = 0,
@@ -44,6 +46,7 @@ final class Player {
         self.id = id
         self.name = name
         self.avatarIcon = avatarIcon
+        self.avatarData = avatarData
         self.totalScore = totalScore
         self.winCount = winCount
         self.loseCount = loseCount

@@ -21,6 +21,7 @@ private extension Color {
 struct RoundInputView: View {
     let gameSession: GameSession
     let viewModel: ScoringViewModel
+    var editingRecord: RoundRecord? = nil
     var onDismissToLobby: (() -> Void)?
 
     @Environment(\.dismiss) private var dismiss
@@ -32,9 +33,14 @@ struct RoundInputView: View {
     @State private var kongDetails: [UUID: KongDetail] = [:]
     @State private var showScoreResult = false
     @State private var popToTableAfterResult = false
+    @State private var saveErrorMessage: String?
+    @State private var showSaveErrorAlert = false
+
+    private var isEditMode: Bool { editingRecord != nil }
 
     private var roundNumber: Int {
-        gameSession.roundRecords.count + 1
+        if let rec = editingRecord { return rec.roundNumber }
+        return gameSession.roundRecords.count + 1
     }
 
     private var canConfirm: Bool {
@@ -85,6 +91,18 @@ struct RoundInputView: View {
                 .hidden()
             )
         }
+        .onAppear {
+            if let rec = editingRecord {
+                selectedWinner = gameSession.players.first { $0.id == rec.winnerID }
+                isSelfDrawn = rec.isSelfDrawn
+                selectedLoser = rec.loserID.flatMap { lid in gameSession.players.first { $0.id == lid } }
+                var kongs: [UUID: KongDetail] = [:]
+                for k in rec.kongDetails {
+                    kongs[k.playerID] = k
+                }
+                kongDetails = kongs
+            }
+        }
         .onChange(of: popToTableAfterResult) { _, newValue in
             if newValue {
                 selectedWinner = nil
@@ -108,7 +126,7 @@ struct RoundInputView: View {
                     Text("第 \(roundNumber) 局")
                         .font(.caption.weight(.bold))
                         .foregroundStyle(Color.inputRed)
-                    Text("本局结算")
+                    Text(isEditMode ? "修改本局结算" : "本局结算")
                         .font(.headline.weight(.bold))
                         .foregroundStyle(.primary)
                 }
@@ -121,6 +139,15 @@ struct RoundInputView: View {
                         .font(.title3)
                         .foregroundStyle(Color.inputRed)
                 }
+            }
+        }
+        .alert("提示", isPresented: $showSaveErrorAlert) {
+            Button("确定", role: .cancel) {
+                saveErrorMessage = nil
+            }
+        } message: {
+            if let msg = saveErrorMessage {
+                Text(msg)
             }
         }
     }
@@ -175,27 +202,14 @@ struct RoundInputView: View {
             VStack(spacing: 6) {
                 ZStack(alignment: .topTrailing) {
                     ZStack {
-                        Circle()
-                            .fill(
-                                LinearGradient(
-                                    colors: [Color.inputGold.opacity(0.5), Color.inputGold.opacity(0.3)],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
+                            PlayerAvatarView(player: player, size: 56, iconColor: Color.inputRed)
+                                .background(Color.white, in: Circle())
+                                .clipShape(Circle())
+                                .overlay(
+                                    Circle()
+                                        .stroke(isSelected ? Color.inputGold : Color.gray.opacity(0.3), lineWidth: isSelected ? 4 : 1.5)
                                 )
-                            )
-                            .frame(width: 56, height: 56)
-                            .overlay(
-                                Image(systemName: player.avatarIcon)
-                                    .font(.system(size: 28, weight: .bold))
-                                    .foregroundStyle(Color.inputRed)
-                            )
-                            .background(Color.white, in: Circle())
-                            .clipShape(Circle())
-                            .overlay(
-                                Circle()
-                                    .stroke(isSelected ? Color.inputGold : Color.gray.opacity(0.3), lineWidth: isSelected ? 4 : 1.5)
-                            )
-                            .shadow(color: isSelected ? Color.inputGold.opacity(0.5) : .black.opacity(0.1), radius: isSelected ? 8 : 4, y: 2)
+                                .shadow(color: isSelected ? Color.inputGold.opacity(0.5) : .black.opacity(0.1), radius: isSelected ? 8 : 4, y: 2)
                     }
                     if isDealer {
                         Text("庄")
@@ -257,20 +271,7 @@ struct RoundInputView: View {
         } label: {
             VStack(spacing: 6) {
                 ZStack(alignment: .topTrailing) {
-                    Circle()
-                        .fill(
-                            LinearGradient(
-                                colors: [Color.inputGold.opacity(0.4), Color.inputGold.opacity(0.2)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .frame(width: 56, height: 56)
-                        .overlay(
-                            Image(systemName: player.avatarIcon)
-                                .font(.system(size: 28, weight: .bold))
-                                .foregroundStyle(Color.inputRed)
-                        )
+                    PlayerAvatarView(player: player, size: 56, iconColor: Color.inputRed)
                         .background(Color.white, in: Circle())
                         .clipShape(Circle())
                         .overlay(
@@ -372,14 +373,7 @@ struct RoundInputView: View {
             }
         )
         return HStack(spacing: 12) {
-            Circle()
-                .fill(Color.inputGold.opacity(0.3))
-                .frame(width: 40, height: 40)
-                .overlay(
-                    Image(systemName: player.avatarIcon)
-                        .font(.system(size: 20, weight: .bold))
-                        .foregroundStyle(Color.inputRed)
-                )
+            PlayerAvatarView(player: player, size: 40, iconColor: Color.inputRed)
             Text(player.name)
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.primary)
@@ -417,7 +411,7 @@ struct RoundInputView: View {
             confirmScore()
         } label: {
             HStack(spacing: 8) {
-                Text("确认算分")
+                Text(isEditMode ? "确认修改" : "确认算分")
                     .font(.title3.weight(.bold))
                 Image(systemName: "arrow.right")
                     .font(.headline.weight(.bold))
@@ -445,15 +439,33 @@ struct RoundInputView: View {
         let kongsArray: [KongDetail] = gameSession.players.map { player in
             kongDetails[player.id] ?? KongDetail(playerID: player.id, exposedKongCount: 0, concealedKongCount: 0)
         }
-        viewModel.calculateAndApplyRound(
-            session: gameSession,
-            winnerID: winner.id,
-            loserID: isSelfDrawn ? nil : selectedLoser?.id,
-            isSelfDrawn: isSelfDrawn,
-            kongs: kongsArray
-        )
-        try? modelContext.save()
-        showScoreResult = true
+        if let rec = editingRecord {
+            viewModel.updateRound(
+                record: rec,
+                session: gameSession,
+                winnerID: winner.id,
+                loserID: isSelfDrawn ? nil : selectedLoser?.id,
+                isSelfDrawn: isSelfDrawn,
+                kongs: kongsArray
+            )
+            do {
+                try modelContext.save()
+                dismiss()
+            } catch {
+                saveErrorMessage = "保存失败：\(error.localizedDescription)"
+                showSaveErrorAlert = true
+            }
+        } else {
+            viewModel.calculateAndApplyRound(
+                session: gameSession,
+                winnerID: winner.id,
+                loserID: isSelfDrawn ? nil : selectedLoser?.id,
+                isSelfDrawn: isSelfDrawn,
+                kongs: kongsArray
+            )
+            try? modelContext.save()
+            showScoreResult = true
+        }
     }
 }
 

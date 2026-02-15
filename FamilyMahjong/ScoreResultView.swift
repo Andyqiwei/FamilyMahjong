@@ -172,20 +172,7 @@ struct ScoreResultView: View {
 
         return HStack(spacing: 16) {
             ZStack(alignment: .topTrailing) {
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: [Color.resultGoldLight.opacity(0.5), Color.resultGoldLight.opacity(0.3)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: 56, height: 56)
-                    .overlay(
-                        Image(systemName: player.avatarIcon)
-                            .font(.system(size: 28, weight: .bold))
-                            .foregroundStyle(Color.resultRed)
-                    )
+                PlayerAvatarView(player: player, size: 56, iconColor: Color.resultRed)
                     .background(Color.white, in: Circle())
                     .clipShape(Circle())
                     .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
@@ -287,14 +274,7 @@ struct ScoreResultView: View {
 
     private func smallPlayerChip(player: Player) -> some View {
         HStack(spacing: 6) {
-            Circle()
-                .fill(Color.resultGoldLight.opacity(0.4))
-                .frame(width: 32, height: 32)
-                .overlay(
-                    Image(systemName: player.avatarIcon)
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(Color.resultRed)
-                )
+            PlayerAvatarView(player: player, size: 32, iconColor: Color.resultRed)
             Text(player.name)
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.primary)
@@ -351,7 +331,7 @@ struct ScoreResultView: View {
             }
             .buttonStyle(ScaleButtonStyle())
 
-            NavigationLink(destination: MatchLogView(gameSession: gameSession, scoringViewModel: scoringViewModel)) {
+            NavigationLink(destination: RecentMatchLogWrapperView()) {
                 HStack(spacing: 8) {
                     Image(systemName: "list.bullet.clipboard.fill")
                         .font(.title2)

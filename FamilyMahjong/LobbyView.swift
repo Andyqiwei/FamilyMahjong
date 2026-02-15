@@ -2,11 +2,13 @@
 //  LobbyView.swift
 //  FamilyMahjong
 //
-//  家庭麻将馆大厅：玩家网格、选中组局、添加新雀友、开始本局。
+//  家庭麻将馆大厅：玩家网格、选中组局、添加新家人、开始本局。
 //
 
 import SwiftUI
 import SwiftData
+import PhotosUI
+import UIKit
 
 // MARK: - 主题色（春节卡通 Q 弹感）
 
@@ -22,6 +24,7 @@ private extension Color {
 struct LobbyView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Player.name) private var players: [Player]
+    @StateObject private var scoringViewModel = ScoringViewModel()
 
     @State private var selectedPlayerIDs: Set<UUID> = []
     @State private var showAddPlayerSheet = false
@@ -70,8 +73,12 @@ struct LobbyView: View {
             }
             .navigationBarHidden(true)
             .sheet(isPresented: $showAddPlayerSheet) {
-                AddPlayerSheet(onSave: { name in
-                    let player = Player(name: name.trimmingCharacters(in: .whitespacesAndNewlines), avatarIcon: "person.circle.fill")
+                AddPlayerSheet(onSave: { name, avatarData in
+                    let player = Player(
+                        name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+                        avatarIcon: "person.circle.fill",
+                        avatarData: avatarData
+                    )
                     modelContext.insert(player)
                     showAddPlayerSheet = false
                 })
@@ -82,18 +89,37 @@ struct LobbyView: View {
     // MARK: - 标题栏
 
     private var titleBar: some View {
-        VStack(spacing: 4) {
-            Text("家庭麻将馆")
-                .font(.system(size: 28, weight: .bold))
-                .foregroundStyle(Color.lobbyRed)
-            Text("今天谁上桌？")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+        ZStack(alignment: .topTrailing) {
+            VStack(spacing: 4) {
+                Text("家庭麻将馆")
+                    .font(.system(size: 28, weight: .bold))
+                    .foregroundStyle(Color.lobbyRed)
+                Text(Date().festiveDateString())
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text("今天谁上桌？")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 20)
+            .background(Color.lobbyBackground)
+            .shadow(color: .black.opacity(0.06), radius: 4, y: 2)
+            HStack(spacing: 16) {
+                NavigationLink(destination: RecentMatchLogWrapperView()) {
+                    Image(systemName: "doc.text")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(Color.lobbyRed)
+                }
+                NavigationLink(destination: StatsView()) {
+                    Image(systemName: "chart.bar")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(Color.lobbyRed)
+                }
+            }
+            .padding(.trailing, 20)
+            .padding(.top, 12)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 20)
-        .background(Color.lobbyBackground)
-        .shadow(color: .black.opacity(0.06), radius: 4, y: 2)
     }
 
     // MARK: - 玩家网格
@@ -104,7 +130,12 @@ struct LobbyView: View {
                 PlayerCardView(
                     player: player,
                     isSelected: selectedPlayerIDs.contains(player.id),
-                    onTap: { toggleSelection(player.id) }
+                    scoringViewModel: scoringViewModel,
+                    onTap: { toggleSelection(player.id) },
+                    onDelete: {
+                        modelContext.delete(player)
+                        try? modelContext.save()
+                    }
                 )
             }
         }
@@ -156,7 +187,7 @@ struct LobbyView: View {
         navigateToTable = true
     }
 
-    // MARK: - 添加新雀友按钮
+    // MARK: - 添加新家人按钮
 
     private var addPlayerButton: some View {
         Button {
@@ -165,7 +196,7 @@ struct LobbyView: View {
             HStack(spacing: 8) {
                 Image(systemName: "plus.circle.fill")
                     .font(.title2)
-                Text("添加新雀友")
+                Text("添加新家人")
                     .font(.headline.weight(.semibold))
             }
             .foregroundStyle(.white)
@@ -185,31 +216,57 @@ struct LobbyView: View {
     }
 }
 
+// MARK: - 战绩日志包装（大厅入口：最近牌局或空状态）
+
+struct RecentMatchLogWrapperView: View {
+    @Query(sort: \RoundRecord.timestamp, order: .reverse) private var recentRecords: [RoundRecord]
+    private var scoringViewModel = ScoringViewModel()
+
+    var body: some View {
+        Group {
+            if recentRecords.isEmpty {
+                ZStack {
+                    Color.lobbyBackground
+                        .ignoresSafeArea()
+                    VStack(spacing: 12) {
+                        Image(systemName: "list.bullet.clipboard")
+                            .font(.system(size: 48, weight: .bold))
+                            .foregroundStyle(Color.lobbyGold)
+                        Text("暂无牌局记录")
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            } else {
+                MatchLogView(records: recentRecords, scoringViewModel: scoringViewModel)
+            }
+        }
+        .navigationTitle("战绩日志")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
 // MARK: - 玩家卡片
 
 private struct PlayerCardView: View {
     let player: Player
     let isSelected: Bool
+    let scoringViewModel: ScoringViewModel
     let onTap: () -> Void
+    let onDelete: () -> Void
+
+    @Environment(\.modelContext) private var modelContext
+
+    private var todayDelta: Int {
+        scoringViewModel.getTodayScoreDelta(for: player, context: modelContext)
+    }
 
     var body: some View {
         Button(action: onTap) {
             VStack(spacing: 10) {
                 ZStack(alignment: .topTrailing) {
-                    Circle()
-                        .fill(
-                            LinearGradient(
-                                colors: [Color.lobbyGold.opacity(0.4), Color.lobbyGoldDark.opacity(0.3)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .frame(width: 64, height: 64)
-                        .overlay(
-                            Image(systemName: player.avatarIcon)
-                                .font(.system(size: 36, weight: .bold))
-                                .foregroundStyle(Color.lobbyRed)
-                        )
+                    PlayerAvatarView(player: player, size: 64, iconColor: Color.lobbyRed)
                     if isSelected {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.title3)
@@ -224,6 +281,15 @@ private struct PlayerCardView: View {
                 Text("总积分 \(player.totalScore)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if todayDelta != 0 {
+                    Text(todayDelta > 0 ? "今日 +\(todayDelta)" : "今日 \(todayDelta)")
+                        .font(.caption2)
+                        .foregroundStyle(todayDelta > 0 ? Color.green : Color.red)
+                } else {
+                    Text("今日 0")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 16)
@@ -237,15 +303,20 @@ private struct PlayerCardView: View {
             .shadow(color: .black.opacity(0.08), radius: 5, y: 3)
         }
         .buttonStyle(ScaleButtonStyle())
+        .contextMenu {
+            Button("删除家人", role: .destructive, action: onDelete)
+        }
     }
 }
 
-// MARK: - 添加新雀友 Sheet
+// MARK: - 添加新家人 Sheet
 
 private struct AddPlayerSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
-    let onSave: (String) -> Void
+    @State private var selectedItem: PhotosPickerItem?
+    @State private var selectedImageData: Data?
+    let onSave: (String, Data?) -> Void
 
     var body: some View {
         NavigationStack {
@@ -254,10 +325,48 @@ private struct AddPlayerSheet: View {
                     TextField("姓名", text: $name)
                         .textContentType(.name)
                 } header: {
-                    Text("新雀友")
+                    Text("新家人")
+                }
+                Section {
+                    PhotosPicker(
+                        selection: $selectedItem,
+                        matching: .images,
+                        photoLibrary: .shared()
+                    ) {
+                        HStack(spacing: 12) {
+                            if let data = selectedImageData, let uiImage = UIImage(data: data) {
+                                Image(uiImage: uiImage)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: 56, height: 56)
+                                    .clipShape(Circle())
+                            } else {
+                                Image(systemName: "person.circle.fill")
+                                    .font(.system(size: 56))
+                                    .foregroundStyle(Color.lobbyRed.opacity(0.6))
+                            }
+                            Text("选一张头像")
+                                .foregroundStyle(.primary)
+                        }
+                    }
+                    .onChange(of: selectedItem) { _, newItem in
+                        Task {
+                            guard let newItem else {
+                                selectedImageData = nil
+                                return
+                            }
+                            if let data = try? await newItem.loadTransferable(type: Data.self) {
+                                selectedImageData = compressImageData(data)
+                            } else {
+                                selectedImageData = nil
+                            }
+                        }
+                    }
+                } header: {
+                    Text("头像")
                 }
             }
-            .navigationTitle("添加新雀友")
+            .navigationTitle("添加新家人")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -268,13 +377,18 @@ private struct AddPlayerSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("确定") {
                         guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-                        onSave(name)
+                        onSave(name, selectedImageData)
                         dismiss()
                     }
                     .fontWeight(.semibold)
                 }
             }
         }
+    }
+
+    private func compressImageData(_ data: Data) -> Data? {
+        guard let uiImage = UIImage(data: data) else { return data }
+        return uiImage.jpegData(compressionQuality: 0.6)
     }
 }
 

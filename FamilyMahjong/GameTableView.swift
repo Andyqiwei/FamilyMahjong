@@ -187,20 +187,7 @@ private struct SeatView: View {
         Button(action: onTap) {
             VStack(spacing: 6) {
                 ZStack(alignment: .topTrailing) {
-                    Circle()
-                        .fill(
-                            LinearGradient(
-                                colors: [Color.tableGold.opacity(0.5), Color.tableGold.opacity(0.3)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .frame(width: 56, height: 56)
-                        .overlay(
-                            Image(systemName: player.avatarIcon)
-                                .font(.system(size: 28, weight: .bold))
-                                .foregroundStyle(Color.tableRed)
-                        )
+                    PlayerAvatarView(player: player, size: 56, iconColor: Color.tableRed)
                         .background(Color.white, in: Circle())
                         .clipShape(Circle())
                         .shadow(color: .black.opacity(0.1), radius: 4, y: 2)

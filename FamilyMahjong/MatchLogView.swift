@@ -2,13 +2,20 @@
 //  MatchLogView.swift
 //  FamilyMahjong
 //
-//  历史日志与撤销：当前牌局下所有对局记录，左滑撤销。
+//  历史日志与撤销：所有对局记录，点击编辑、左滑撤销。
 //
 
 import SwiftUI
 import SwiftData
 
 // MARK: - 主题色（春节卡通风）
+
+private let logDateFormatter: DateFormatter = {
+    let f = DateFormatter()
+    f.dateFormat = "MM-dd HH:mm"
+    f.locale = Locale(identifier: "zh_CN")
+    return f
+}()
 
 private extension Color {
     static let logRed = Color(red: 230/255, green: 57/255, blue: 70/255)
@@ -19,23 +26,35 @@ private extension Color {
 // MARK: - MatchLogView
 
 struct MatchLogView: View {
-    let gameSession: GameSession
+    let records: [RoundRecord]
     let scoringViewModel: ScoringViewModel
 
     @Environment(\.modelContext) private var modelContext
+    @State private var saveErrorMessage: String?
+    @State private var showSaveErrorAlert = false
 
-    private var sortedRecords: [RoundRecord] {
-        gameSession.roundRecords.sorted { $0.timestamp > $1.timestamp }
+    init(records: [RoundRecord], scoringViewModel: ScoringViewModel) {
+        self.records = records
+        self.scoringViewModel = scoringViewModel
     }
 
-    private func playerName(by id: UUID) -> String {
-        gameSession.players.first { $0.id == id }?.name ?? "未知"
+    init(gameSession: GameSession, scoringViewModel: ScoringViewModel) {
+        self.records = gameSession.roundRecords
+        self.scoringViewModel = scoringViewModel
+    }
+
+    private var sortedRecords: [RoundRecord] {
+        records.sorted { $0.timestamp > $1.timestamp }
+    }
+
+    private func playerName(record: RoundRecord, id: UUID) -> String {
+        record.gameSession?.players.first { $0.id == id }?.name ?? "未知"
     }
 
     private func kongSummary(for record: RoundRecord) -> String {
         guard !record.kongDetails.isEmpty else { return "无" }
         let parts = record.kongDetails.compactMap { k -> String? in
-            let name = playerName(by: k.playerID)
+            let name = playerName(record: record, id: k.playerID)
             var s: [String] = []
             if k.exposedKongCount > 0 { s.append("\(k.exposedKongCount)明") }
             if k.concealedKongCount > 0 { s.append("\(k.concealedKongCount)暗") }
@@ -47,13 +66,29 @@ struct MatchLogView: View {
 
     private func deleteRecords(at indexSet: IndexSet) {
         let sorted = sortedRecords
+        // 若有记录的 gameSession 为 nil，无法正确撤销分数，不执行删除并提示
         for index in indexSet {
             guard index < sorted.count else { continue }
             let record = sorted[index]
-            scoringViewModel.undoRound(record: record, session: gameSession)
+            if record.gameSession == nil {
+                saveErrorMessage = "该记录关联的牌局已丢失，无法撤销分数"
+                showSaveErrorAlert = true
+                return
+            }
+        }
+        for index in indexSet {
+            guard index < sorted.count else { continue }
+            let record = sorted[index]
+            guard let session = record.gameSession else { continue }
+            scoringViewModel.undoRound(record: record, session: session)
             modelContext.delete(record)
         }
-        try? modelContext.save()
+        do {
+            try modelContext.save()
+        } catch {
+            saveErrorMessage = "保存失败：\(error.localizedDescription)"
+            showSaveErrorAlert = true
+        }
     }
 
     var body: some View {
@@ -74,14 +109,29 @@ struct MatchLogView: View {
             } else {
                 List {
                     ForEach(sortedRecords, id: \.id) { record in
-                        logRow(record: record)
-                            .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
-                            .listRowBackground(
-                                RoundedRectangle(cornerRadius: 16)
-                                    .fill(Color.white)
-                                    .shadow(color: .black.opacity(0.06), radius: 4, y: 2)
-                            )
-                            .listRowSeparator(.hidden)
+                        Group {
+                            if let session = record.gameSession {
+                                NavigationLink {
+                                    RoundInputView(
+                                        gameSession: session,
+                                        viewModel: scoringViewModel,
+                                        editingRecord: record,
+                                        onDismissToLobby: nil
+                                    )
+                                } label: {
+                                    logRow(record: record)
+                                }
+                            } else {
+                                logRow(record: record)
+                            }
+                        }
+                        .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
+                        .listRowBackground(
+                            RoundedRectangle(cornerRadius: 16)
+                                .fill(Color.white)
+                                .shadow(color: .black.opacity(0.06), radius: 4, y: 2)
+                        )
+                        .listRowSeparator(.hidden)
                     }
                     .onDelete(perform: deleteRecords)
                 }
@@ -91,6 +141,15 @@ struct MatchLogView: View {
         }
         .navigationTitle("历史日志")
         .navigationBarTitleDisplayMode(.inline)
+        .alert("提示", isPresented: $showSaveErrorAlert) {
+            Button("确定", role: .cancel) {
+                saveErrorMessage = nil
+            }
+        } message: {
+            if let msg = saveErrorMessage {
+                Text(msg)
+            }
+        }
     }
 
     private func logRow(record: RoundRecord) -> some View {
@@ -100,7 +159,7 @@ struct MatchLogView: View {
                     .font(.headline.weight(.bold))
                     .foregroundStyle(Color.logRed)
                 Spacer()
-                Text(record.timestamp, style: .time)
+                Text(logDateFormatter.string(from: record.timestamp))
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.secondary)
             }
@@ -108,7 +167,7 @@ struct MatchLogView: View {
                 Image(systemName: "star.circle.fill")
                     .font(.caption)
                     .foregroundStyle(Color.logGold)
-                Text("\(playerName(by: record.winnerID)) 胡")
+                Text("\(playerName(record: record, id: record.winnerID)) 胡")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.primary)
             }
@@ -116,7 +175,7 @@ struct MatchLogView: View {
                 Image(systemName: record.isSelfDrawn ? "hand.raised.fill" : "flame.fill")
                     .font(.caption)
                     .foregroundStyle(record.isSelfDrawn ? Color.logGold : Color.logRed)
-                Text(record.isSelfDrawn ? "自摸" : "\(record.loserID.map { playerName(by: $0) } ?? "?") 点炮")
+                Text(record.isSelfDrawn ? "自摸" : "\(record.loserID.map { playerName(record: record, id: $0) } ?? "?") 点炮")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
