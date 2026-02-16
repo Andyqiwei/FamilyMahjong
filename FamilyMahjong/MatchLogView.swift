@@ -198,7 +198,7 @@ struct MatchLogView: View {
 
         return VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("\(roundMmDdFormatter.string(from: record.timestamp)) 第\(record.roundNumber)局")
+                Text(roundMmDdFormatter.string(from: record.timestamp))
                     .font(.headline.weight(.bold))
                     .foregroundStyle(Color.logRed)
                 Spacer()

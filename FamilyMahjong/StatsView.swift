@@ -21,7 +21,7 @@ private extension Color {
 // MARK: - 主 Tab / 详细范围
 
 private enum MainTab: String, CaseIterable {
-    case funRanking = "趣味大榜"
+    case funRanking = "朱家大榜"
     case detailedData = "详细数据"
 }
 
@@ -125,7 +125,7 @@ struct StatsView: View {
     }
 
     private var titleSection: some View {
-        Text("趣味排行榜")
+        Text("朱家琅琊榜")
             .font(.title.weight(.bold))
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity)
