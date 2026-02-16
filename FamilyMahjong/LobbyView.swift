@@ -40,18 +40,6 @@ struct LobbyView: View {
     var body: some View {
         NavigationStack {
             ZStack(alignment: .bottom) {
-                // 程序化跳转到选庄页 GameTableView（隐藏的 NavigationLink）
-                if let list = playersToTable, list.count == 4 {
-                    NavigationLink(
-                        destination: GameTableView(players: list, onDismissToLobby: { navigateToTable = false }),
-                        isActive: $navigateToTable
-                    ) {
-                        EmptyView()
-                    }
-                    .frame(width: 0, height: 0)
-                    .hidden()
-                }
-
                 ScrollView {
                     VStack(spacing: 0) {
                         titleBar
@@ -62,6 +50,7 @@ struct LobbyView: View {
                 }
                 .background(Color.lobbyBackground)
 
+                // 底部按钮区置于最上层，避免被 ScrollView 手势或层级遮挡（iOS 17 点击无反应时多为层级/命中问题）
                 VStack(spacing: 12) {
                     if selectedPlayerIDs.count == 4 {
                         startGameButton
@@ -71,8 +60,14 @@ struct LobbyView: View {
                 }
                 .padding(.horizontal, 24)
                 .padding(.bottom, 32)
+                .zIndex(1)
             }
             .navigationBarHidden(true)
+            .navigationDestination(isPresented: $navigateToTable) {
+                if let list = playersToTable, list.count == 4 {
+                    GameTableView(players: list, onDismissToLobby: { navigateToTable = false })
+                }
+            }
             .sheet(isPresented: $showAddPlayerSheet) {
                 AddPlayerSheet(editingPlayer: editingPlayer, existingPlayers: players, onSave: { name, avatarData in
                     let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -198,6 +193,7 @@ struct LobbyView: View {
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 18)
+            .contentShape(Rectangle()) // iOS 17：让整块区域参与命中测试，避免只有图标/文字可点
             .background(
                 LinearGradient(
                     colors: [Color.lobbyRed, Color.lobbyRed.opacity(0.85)],
